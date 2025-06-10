@@ -1,0 +1,6 @@
+apiVersion: v2
+name: guardplus
+description: A secure gateway written in Rust
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

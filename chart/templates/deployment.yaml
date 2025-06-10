@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardplus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guardplus
+  template:
+    metadata:
+      labels:
+        app: guardplus
+    spec:
+      containers:
+        - name: guardplus
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: tls
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.certSecretName }}

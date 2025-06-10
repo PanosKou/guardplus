@@ -1,0 +1,11 @@
+image:
+  repository: guardplus
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 8080
+
+tls:
+  enabled: true
+  certSecretName: guardplus-tls

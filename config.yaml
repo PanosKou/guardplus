@@ -1,0 +1,27 @@
+http_port: 8080
+
+auth:
+  oidc_providers:
+    - name: github
+      issuer_url: "https://token.actions.githubusercontent.com"
+      audience: "https://github.com/org"
+
+tls:
+  cert_path: "./cert.pem"
+  key_path: "./key.pem"
+
+backends:
+  - name: echo
+    protocol: http
+    address: "http://localhost:9000"
+    routes: ["/"]
+
+consul_url: http://localhost:8500
+tls_mode: "file"
+tls_cert_path: "cert.pem"
+tls_key_path: "key.pem"
+tls_domain: "example.com"
+tls_email: "admin@example.com"
+bearer_token: "Bearer mysecrettoken"
+rate_limit_per_sec: 100
+rate_limit_burst: 50

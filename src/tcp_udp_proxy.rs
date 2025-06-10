@@ -23,7 +23,7 @@ pub async fn run_tcp_gateway(listen_addr: SocketAddr, service_name: String, regi
                     eprintln!("[tcp] Failed to connect to backend: {}", backend);
                 }
             } else {
-                eprintln!("[tcp] No backend found for service '{}'");
+                eprintln!("[tcp] No backend found for service '{}'", service_name);
             }
         });
     }
@@ -52,7 +52,7 @@ pub async fn run_udp_gateway(listen_addr: SocketAddr, service_name: String, regi
                     }
                 }
             } else {
-                eprintln!("[udp] No backend found for service '{}'");
+                eprintln!("[udp] No backend found for service '{}'", service_name);
             }
         });
     }

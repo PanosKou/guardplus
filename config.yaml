@@ -1,27 +1,53 @@
+# HTTP (and HTTPS) listening port
 http_port: 8080
 
+# Optional override ports for gRPC, TCP, and UDP services
+grpc_port: 50051
+tcp_port: 91000
+udp_port: 92000
+
+# Authentication via OIDC
 auth:
   oidc_providers:
     - name: github
       issuer_url: "https://token.actions.githubusercontent.com"
       audience: "https://github.com/org"
 
+# TLS certificate configuration
 tls:
   cert_path: "./cert.pem"
   key_path: "./key.pem"
 
+# Backend connections
 backends:
   - name: echo
     protocol: http
-    address: "http://localhost:9000"
-    routes: ["/"]
+    address: "http://127.0.0.1:8087"
+    routes: ["/echo"]
+  - name: grpc_service
+    protocol: grpc
+    address: "http://127.0.0.1:50052"
+    routes: ["/grpc"]
+  - name: tcpservice
+    protocol: tcp
+    address: "127.0.0.1:9100"
+    routes: []
+  - name: udpservice
+    protocol: udp
+    address: "127.0.0.1:9200"
+    routes: []
 
-consul_url: http://localhost:8500
+# Service discovery & TLS mode
+consul_url: "http://localhost:8500"
 tls_mode: "file"
-tls_cert_path: "cert.pem"
-tls_key_path: "key.pem"
+tls_cert_path: "./cert.pem"
+tls_key_path: "./key.pem"
 tls_domain: "example.com"
 tls_email: "admin@example.com"
+
+# Authorization header for registry or proxies, if needed
 bearer_token: "Bearer mysecrettoken"
+
+# Rate limiting settings
 rate_limit_per_sec: 100
 rate_limit_burst: 50

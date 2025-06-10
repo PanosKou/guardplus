@@ -7,127 +7,92 @@ mod config;
 mod tls_config;
 
 use backend_registry::BackendRegistry;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::spawn;
 use config::Config;
 use log::{error, info};
-use std::error::Error;
+use std::{error::Error, net::SocketAddr, sync::Arc};
+use tokio::spawn;
+use tls_config::TlsConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    // Load configuration
-    let cfg = match Config::from_file("config.yaml") {
-        Ok(c) => {
-            info!("Configuration loaded from config.yaml");
-            c
-        }
-        Err(e) => {
-            error!("Failed to read configuration: {}", e);
-            return Err(Box::new(e));
-        }
-    };
+    // Load entire configuration
+    let cfg = Config::from_file("config.yaml").map_err(|e| {
+        error!("Config load failed: {}", e);
+        e
+    })?;
 
-    // Example outputs
-    info!("HTTP server will listen on port {}", cfg.http_port);
-    println!("HTTP server port: {}", cfg.http_port);
+    info!("Loaded config: listening HTTP/HTTPS on port {}", cfg.http_port);
+    info!("Consul URL: {}", cfg.consul_url);
+    info!("TLS mode: {}", cfg.tls_mode);
 
-    // Display OIDC providers
-    for prov in &cfg.auth.oidc_providers {
-        println!("OIDC Provider: '{}' @ {}", prov.name, prov.issuer_url);
-    }
+    // Initialize TLS acceptor
+    let tls_config = TlsConfig::load(&cfg.tls.cert_path, &cfg.tls.key_path).map_err(|e| {
+        error!("TLS load failed: {}", e);
+        e
+    })?;
+    let tls_acceptor = tls_config.acceptor.clone();
 
-    // Display backends
-    for be in &cfg.backends {
-        println!(
-            "Backend '{}' via {} at {} for routes {:?}",
-            be.name, be.protocol, be.address, be.routes
-        );
-    }
-
-    // Additional example: consul URL and TLS mode
-    println!("Consul URL: {}", cfg.consul_url);
-    println!("TLS mode: {}", cfg.tls_mode);
-
-    // 1) Initialize registry and register some backends (hard-coded for demo).
+    // Set up backend registry and register from config
     let registry = Arc::new(BackendRegistry::new());
+    for be in &cfg.backends {
+        for route in &be.routes {
+            let key = route.trim_start_matches('/').split('/').next().unwrap_or_default();
+            registry.register(key, be.address.clone());
+            info!("Registered backend '{}' → {}", key, be.address);
+        }
+    }
 
-    // HTTP backends for service “http”
-    registry.register("http", "http://127.0.0.1:8087");
-    registry.register("http", "http://127.0.0.1:8089");
+    // Spawn HTTPS proxy
+    {
+        let reg = registry.clone();
+        let acceptor = tls_acceptor.clone();
+        let port = cfg.http_port;
+        spawn(async move {
+            let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
+            http_proxy::run_https_gateway(addr, reg, acceptor, None).await;
+        });
+    }
 
-    // gRPC backends for service “gprc”
-    registry.register("grpc", "http://127.0.0.1:50052"); // tonic expects http://
+    // Spawn HTTP proxy on same port (if needed)
+    {
+        let reg = registry.clone();
+        let port = cfg.http_port;
+        spawn(async move {
+            let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
+            http_proxy::run_http_gateway(addr, reg, None).await;
+        });
+    }
 
-    // TCP backends for “tcpservice”
-    registry.register("tcpservice", "127.0.0.1:9100");
-    registry.register("tcpservice", "127.0.0.1:9101");
+    // Spawn gRPC, TCP and UDP using config defaults or fallback ports
+    let grpc_addr = format!("0.0.0.0:{}", cfg.grpc_port.unwrap_or(50051));
+    spawn(grpc_service::run_grpc_gateway(grpc_addr.clone(), registry.clone()));
 
-    // UDP backends for “udpservice”
-    registry.register("udpservice", "127.0.0.1:9200");
-    registry.register("udpservice", "127.0.0.1:9201");
-
-    // 2) Launch HTTP gateway on 0.0.0.0:8080 (with optional basic auth token "Bearer SECRET")
-    let http_registry = registry.clone();
+    let tcp_addr = format!("0.0.0.0:{}", cfg.tcp_port.unwrap_or(91000));
     spawn(async move {
-        let addr: SocketAddr = "0.0.0.0:8080".parse().unwrap();
-        // If you want to require “Bearer SECRET” on every HTTP request, use Some("Bearer SECRET".into())
-        http_proxy::run_http_gateway(addr, http_registry, None).await;
-    });
-
-    // 3) Launch gRPC gateway on 0.0.0.0:50051
-    let grpc_registry = registry.clone();
-    spawn(async move {
-        grpc_service::run_grpc_gateway("0.0.0.0:50051", grpc_registry)
+        let addr: SocketAddr = tcp_addr.parse().unwrap();
+        tcp_udp_proxy::run_tcp_gateway(addr, "tcpservice".into(), registry.clone())
             .await
             .unwrap();
     });
 
-    // 4) Launch TCP gateway for service “tcpservice” on 0.0.0.0:91000
-    let tcp_registry = registry.clone();
+    let udp_addr = format!("0.0.0.0:{}", cfg.udp_port.unwrap_or(92000));
     spawn(async move {
-        let listen: SocketAddr = "0.0.0.0:91000".parse().unwrap();
-        tcp_udp_proxy::run_tcp_gateway(listen, "tcpservice".into(), tcp_registry)
+        let addr: SocketAddr = udp_addr.parse().unwrap();
+        tcp_udp_proxy::run_udp_gateway(addr, "udpservice".into(), registry.clone())
             .await
             .unwrap();
     });
 
-    // 5) Launch UDP gateway for service “udpservice” on 0.0.0.0:92000
-    let udp_registry = registry.clone();
-    spawn(async move {
-        let listen: SocketAddr = "0.0.0.0:92000".parse().unwrap();
-        tcp_udp_proxy::run_udp_gateway(listen, "udpservice".into(), udp_registry)
-            .await
-            .unwrap();
-    });
+    // Print key config info
+    println!("OIDC providers:");
+    for prov in &cfg.auth.oidc_providers {
+        println!("- {} @ {}", prov.name, prov.issuer_url);
+    }
 
-    // Prevent main from exiting
+    // Prevent exit
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
     }
-}
-
-
-fn load_tls_config(cert_path: &str, key_path: &str) -> Arc<ServerConfig> {
-    let cert_file = &mut BufReader::new(File::open(cert_path).unwrap());
-    let key_file = &mut BufReader::new(File::open(key_path).unwrap());
-
-    let cert_chain = rustls_pemfile::certs(cert_file)
-        .unwrap()
-        .into_iter()
-        .map(Certificate)
-        .collect();
-
-    let mut keys = rustls_pemfile::pkcs8_private_keys(key_file).unwrap();
-    let key = PrivateKey(keys.remove(0));
-
-    let config = ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_single_cert(cert_chain, key)
-        .unwrap();
-
-    Arc::new(config)
 }

@@ -3,20 +3,60 @@ mod grpc_service;
 mod http_proxy;
 mod middleware;
 mod tcp_udp_proxy;
+mod config;
+mod tls_config;
 
 use backend_registry::BackendRegistry;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::spawn;
+use config::Config;
+use log::{error, info};
+use std::error::Error;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+
+    // Load configuration
+    let cfg = match Config::from_file("config.yaml") {
+        Ok(c) => {
+            info!("Configuration loaded from config.yaml");
+            c
+        }
+        Err(e) => {
+            error!("Failed to read configuration: {}", e);
+            return Err(Box::new(e));
+        }
+    };
+
+    // Example outputs
+    info!("HTTP server will listen on port {}", cfg.http_port);
+    println!("HTTP server port: {}", cfg.http_port);
+
+    // Display OIDC providers
+    for prov in &cfg.auth.oidc_providers {
+        println!("OIDC Provider: '{}' @ {}", prov.name, prov.issuer_url);
+    }
+
+    // Display backends
+    for be in &cfg.backends {
+        println!(
+            "Backend '{}' via {} at {} for routes {:?}",
+            be.name, be.protocol, be.address, be.routes
+        );
+    }
+
+    // Additional example: consul URL and TLS mode
+    println!("Consul URL: {}", cfg.consul_url);
+    println!("TLS mode: {}", cfg.tls_mode);
+
     // 1) Initialize registry and register some backends (hard-coded for demo).
     let registry = Arc::new(BackendRegistry::new());
 
     // HTTP backends for service “http”
-    registry.register("http", "http://127.0.0.1:9000");
-    registry.register("http", "http://127.0.0.1:9001");
+    registry.register("http", "http://127.0.0.1:8087");
+    registry.register("http", "http://127.0.0.1:8089");
 
     // gRPC backends for service “gprc”
     registry.register("grpc", "http://127.0.0.1:50052"); // tonic expects http://

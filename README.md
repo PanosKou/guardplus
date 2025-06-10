@@ -107,7 +107,7 @@ Apache-2.0
 ## Notes
 Build
 ```bash
-cd guard_plus
+cd guardplus
 cargo build --release
 ```
 Run local mock backends

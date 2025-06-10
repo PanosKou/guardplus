@@ -9,90 +9,128 @@ mod tls_config;
 use backend_registry::BackendRegistry;
 use config::Config;
 use log::{error, info};
-use std::{error::Error, net::SocketAddr, sync::Arc};
+use std::{error::Error, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::spawn;
 use tls_config::TlsConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // Initialize logging
     env_logger::init();
 
-    // Load entire configuration
+    // 1) Load entire configuration from config.yaml
     let cfg = Config::from_file("config.yaml").map_err(|e| {
         error!("Config load failed: {}", e);
         e
     })?;
 
-    info!("Loaded config: listening HTTP/HTTPS on port {}", cfg.http_port);
+    info!("Loaded config: HTTP port {}, gRPC port {:?}, TCP port {:?}, UDP port {:?}",
+        cfg.http_port, cfg.grpc_port, cfg.tcp_port, cfg.udp_port);
     info!("Consul URL: {}", cfg.consul_url);
     info!("TLS mode: {}", cfg.tls_mode);
 
-    // Initialize TLS acceptor
-    let tls_config = TlsConfig::load(&cfg.tls.cert_path, &cfg.tls.key_path).map_err(|e| {
+    // 2) Initialize TLS acceptor once
+    let tls_cfg = TlsConfig::load(&cfg.tls.cert_path, &cfg.tls.key_path).map_err(|e| {
         error!("TLS load failed: {}", e);
         e
     })?;
-    let tls_acceptor = tls_config.acceptor.clone();
+    let tls_acceptor = tls_cfg.acceptor.clone();
 
-    // Set up backend registry and register from config
+    // 3) Build backend registry dynamically from cfg.backends
     let registry = Arc::new(BackendRegistry::new());
     for be in &cfg.backends {
-        for route in &be.routes {
-            let key = route.trim_start_matches('/').split('/').next().unwrap_or_default();
-            registry.register(key, be.address.clone());
-            info!("Registered backend '{}' → {}", key, be.address);
-        }
+        // register each backend under its service name
+        registry.register(&be.name, be.address.clone());
+        info!(
+            "Registered backend '{}' via {} at {}",
+            be.name, be.protocol, be.address
+        );
     }
 
-    // Spawn HTTPS proxy
+    // Common parameters
+    let bearer = cfg.bearer_token.clone();
+    let rate_per_sec = cfg.rate_limit_per_sec;
+    let rate_burst = Duration::from_secs(cfg.rate_limit_burst as u64);
+
+    // 4) Spawn HTTPS gateway (TLS)
     {
         let reg = registry.clone();
         let acceptor = tls_acceptor.clone();
+        let auth = Some(bearer.clone());
+        let rate = rate_per_sec;
+        let burst = rate_burst;
         let port = cfg.http_port;
         spawn(async move {
             let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
-            http_proxy::run_https_gateway(addr, reg, acceptor, None).await;
+            http_proxy::run_https_gateway(addr, reg, acceptor, auth, rate, burst).await;
         });
+        info!("Spawned HTTPS gateway on port {}", cfg.http_port);
     }
 
-    // Spawn HTTP proxy on same port (if needed)
+    // 5) Spawn HTTP gateway on same port (optional)
     {
         let reg = registry.clone();
+        let auth = Some(bearer.clone());
+        let rate = rate_per_sec;
+        let burst = rate_burst;
         let port = cfg.http_port;
         spawn(async move {
             let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
-            http_proxy::run_http_gateway(addr, reg, None).await;
+            http_proxy::run_http_gateway(addr, reg, auth, rate, burst).await;
         });
+        info!("Spawned HTTP gateway on port {}", cfg.http_port);
     }
 
-    // Spawn gRPC, TCP and UDP using config defaults or fallback ports
-    let grpc_addr = format!("0.0.0.0:{}", cfg.grpc_port.unwrap_or(50051));
-    spawn(grpc_service::run_grpc_gateway(grpc_addr.clone(), registry.clone()));
+    // 6) Spawn gRPC gateway
+    {
+        let reg = registry.clone();
+        let auth = Some(bearer.clone());
+        let port = cfg.grpc_port.unwrap_or(50051);
+        let addr = format!("0.0.0.0:{}", port);
+        spawn(async move {
+            grpc_service::run_grpc_gateway(addr, reg, auth)
+                .await
+                .expect("gRPC gateway failed");
+        });
+        info!("Spawned gRPC gateway on port {}", port);
+    }
 
-    let tcp_addr = format!("0.0.0.0:{}", cfg.tcp_port.unwrap_or(91000));
-    spawn(async move {
-        let addr: SocketAddr = tcp_addr.parse().unwrap();
-        tcp_udp_proxy::run_tcp_gateway(addr, "tcpservice".into(), registry.clone())
-            .await
-            .unwrap();
-    });
+    // 7) Spawn TCP proxy
+    {
+        let reg = registry.clone();
+        let auth = Some(bearer.clone());
+        let port = cfg.tcp_port.unwrap_or(91000);
+        let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
+        spawn(async move {
+            tcp_udp_proxy::run_tcp_gateway(addr, auth, reg)
+                .await
+                .expect("TCP gateway failed");
+        });
+        info!("Spawned TCP gateway on port {}", port);
+    }
 
-    let udp_addr = format!("0.0.0.0:{}", cfg.udp_port.unwrap_or(92000));
-    spawn(async move {
-        let addr: SocketAddr = udp_addr.parse().unwrap();
-        tcp_udp_proxy::run_udp_gateway(addr, "udpservice".into(), registry.clone())
-            .await
-            .unwrap();
-    });
+    // 8) Spawn UDP proxy
+    {
+        let reg = registry.clone();
+        let auth = Some(bearer.clone());
+        let port = cfg.udp_port.unwrap_or(92000);
+        let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
+        spawn(async move {
+            tcp_udp_proxy::run_udp_gateway(addr, auth, reg)
+                .await
+                .expect("UDP gateway failed");
+        });
+        info!("Spawned UDP gateway on port {}", port);
+    }
 
-    // Print key config info
-    println!("OIDC providers:");
+    // 9) Print OIDC providers for visibility
+    println!("OIDC providers configured:");
     for prov in &cfg.auth.oidc_providers {
         println!("- {} @ {}", prov.name, prov.issuer_url);
     }
 
-    // Prevent exit
+    // 10) Prevent the main task from exiting
     loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+        tokio::time::sleep(Duration::from_secs(3600)).await;
     }
 }

@@ -4,13 +4,15 @@ use hyper::{
     client::HttpConnector,
     server::conn::Http,
     service::service_fn,
-    Body, Client, Request, Response,
+    Body, Client, Request, Response, Server,
 };
 use std::{net::SocketAddr, sync::Arc};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tower::{ServiceBuilder, ServiceExt};
+use tower::limit::rate::RateLimitLayer;
 use tower_http::add_extension::AddExtensionLayer;
+use std::time::Duration;
 
 /// Shared logic for request routing
 async fn route_request(
@@ -22,26 +24,21 @@ async fn route_request(
     if let Some(service_name) = segments.next() {
         if let Some(target) = registry.pick_one(service_name) {
             let mut parts = req.uri().clone().into_parts();
-            let backend_uri: hyper::Uri = format!(
-                "{}{}",
-                target,
-                &path[service_name.len() + 1..]
-            )
-            .parse()
-            .unwrap();
+            let backend_uri: hyper::Uri =
+                format!("{}{}", target, &path[service_name.len() + 1..])
+                    .parse()
+                    .unwrap();
             parts.scheme = backend_uri.scheme().cloned();
             parts.authority = backend_uri.authority().cloned();
             parts.path_and_query = backend_uri.path_and_query().cloned();
+
             let proxied = Request::from_parts(parts, req.into_body());
             let client: Client<HttpConnector> = Client::new();
             client.request(proxied).await
         } else {
             Ok(Response::builder()
                 .status(502)
-                .body(Body::from(format!(
-                    "No backend for service '{}'",
-                    service_name
-                )))
+                .body(Body::from(format!("No backend for '{}'", service_name)))
                 .unwrap())
         }
     } else {
@@ -52,16 +49,20 @@ async fn route_request(
     }
 }
 
-/// Launch an unencrypted HTTP gateway
+/// Launch an unencrypted HTTP gateway with rate limiting
 pub async fn run_http_gateway(
     listen_addr: SocketAddr,
     registry: Arc<BackendRegistry>,
     auth_token: Option<String>,
+    rate_per_sec: u64,
+    rate_burst: Duration,
 ) {
     let make_svc = hyper::service::make_service_fn(move |_| {
         let reg = registry.clone();
         let auth = auth_token.clone();
+
         let svc = ServiceBuilder::new()
+            .layer(RateLimitLayer::new(rate_per_sec, rate_burst))
             .layer(AddExtensionLayer::new(reg.clone()))
             .layer(http_middleware(auth))
             .service_fn(move |req| {
@@ -79,12 +80,14 @@ pub async fn run_http_gateway(
     }
 }
 
-/// Launch a TLS-secured HTTPS gateway
+/// Launch a TLS‑secured HTTPS gateway with the same rate limiting
 pub async fn run_https_gateway(
     listen_addr: SocketAddr,
     registry: Arc<BackendRegistry>,
     tls_acceptor: TlsAcceptor,
     auth_token: Option<String>,
+    rate_per_sec: u64,
+    rate_burst: Duration,
 ) {
     let listener = TcpListener::bind(&listen_addr)
         .await
@@ -95,10 +98,11 @@ pub async fn run_https_gateway(
         let (stream, _) = match listener.accept().await {
             Ok(pair) => pair,
             Err(e) => {
-                eprintln!("Failed to accept TCP connection: {}", e);
+                eprintln!("TCP accept error: {}", e);
                 continue;
             }
         };
+
         let acceptor = tls_acceptor.clone();
         let reg = registry.clone();
         let auth = auth_token.clone();
@@ -113,6 +117,7 @@ pub async fn run_https_gateway(
             };
 
             let svc = ServiceBuilder::new()
+                .layer(RateLimitLayer::new(rate_per_sec, rate_burst))
                 .layer(AddExtensionLayer::new(reg.clone()))
                 .layer(http_middleware(auth))
                 .service_fn(move |req| {

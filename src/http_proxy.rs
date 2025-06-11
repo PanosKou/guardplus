@@ -1,55 +1,73 @@
-use crate::backend_registry::BackendRegistry;
-use crate::middleware::http_middleware;
-use hyper::{
-    client::HttpConnector,
-    server::conn::Http,
-    service::service_fn,
-    Body, Client, Request, Response, Server,
+// src/http_proxy.rs
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+use axum::{
+    body::{Body, to_bytes},
+    http::{HeaderMap, Request, Response, StatusCode, Uri},
+    routing::any,
+    Router,
 };
-use std::{net::SocketAddr, sync::Arc};
-use tokio::net::TcpListener;
-use tokio_rustls::TlsAcceptor;
-use tower::{ServiceBuilder, ServiceExt};
-use tower::limit::rate::RateLimitLayer;
-use tower_http::add_extension::AddExtensionLayer;
-use std::time::Duration;
+use axum_server::{tls_rustls::RustlsConfig, Server};
+use reqwest::Client;
+use crate::{
+    backend_registry::BackendRegistry,
+    middleware::{http_middleware, BearerAuth},
+};
 
-/// Shared logic for request routing
+/// Shared reqwest client
+fn make_client() -> Client {
+    Client::builder().timeout(Duration::from_secs(10)).build().unwrap()
+}
+
+/// Proxy handler
 async fn route_request(
-    req: Request<Body>,
+    mut req: Request<Body>,
     registry: Arc<BackendRegistry>,
-) -> Result<Response<Body>, hyper::Error> {
-    let path = req.uri().path();
-    let mut segments = path.trim_start_matches('/').split('/');
-    if let Some(service_name) = segments.next() {
-        if let Some(target) = registry.pick_one(service_name) {
-            let mut parts = req.uri().clone().into_parts();
-            let backend_uri: hyper::Uri =
-                format!("{}{}", target, &path[service_name.len() + 1..])
-                    .parse()
-                    .unwrap();
-            parts.scheme = backend_uri.scheme().cloned();
-            parts.authority = backend_uri.authority().cloned();
-            parts.path_and_query = backend_uri.path_and_query().cloned();
+    client: Client,
+) -> Response<Body> {
+    let method = req.method().clone();
+    let orig_headers = req.headers().clone();
+    let path = req.uri().path().trim_start_matches('/');
+    let mut parts = path.splitn(2, '/');
+    let svc = parts.next().unwrap_or("");
+    let suffix = parts.next().unwrap_or("");
 
-            let proxied = Request::from_parts(parts, req.into_body());
-            let client: Client<HttpConnector> = Client::new();
-            client.request(proxied).await
-        } else {
-            Ok(Response::builder()
-                .status(502)
-                .body(Body::from(format!("No backend for '{}'", service_name)))
-                .unwrap())
+    if let Some(base) = registry.pick_one(svc) {
+        let full_url = format!("{}/{}", base.trim_end_matches('/'), suffix);
+        *req.uri_mut() = Uri::try_from(&full_url).unwrap();
+        let bytes = to_bytes(req.into_body(), 1024*1024).await.unwrap_or_default();
+
+        let mut rreq = reqwest::Request::new(
+            method.as_str().parse().unwrap(), full_url.parse().unwrap()
+        );
+        let mut hdrs = reqwest::header::HeaderMap::new();
+        for (name, val) in orig_headers.iter() {
+            if let (Ok(n), Ok(v)) = (
+                name.as_str().parse(), val.to_str().unwrap_or_default().parse()
+            ) { hdrs.append(n, v); }
+        }
+        *rreq.headers_mut() = hdrs;
+        *rreq.body_mut()    = Some(bytes.into());
+
+        match client.execute(rreq).await {
+            Ok(res) => {
+                let status = StatusCode::from_u16(res.status().as_u16()).unwrap();
+                let mut bldr = Response::builder().status(status);
+                for (hk, hv) in res.headers().iter() {
+                    bldr = bldr.header(hk.as_str(), hv.as_bytes());
+                }
+                let body = res.bytes().await.unwrap_or_default();
+                bldr.body(Body::from(body)).unwrap()
+            }
+            Err(_) => Response::builder().status(StatusCode::BAD_GATEWAY)
+                         .body(Body::from("Bad gateway")).unwrap(),
         }
     } else {
-        Ok(Response::builder()
-            .status(404)
-            .body(Body::from("No service specified"))
-            .unwrap())
+        Response::builder().status(StatusCode::NOT_FOUND)
+            .body(Body::from("Service not found")).unwrap()
     }
 }
 
-/// Launch an unencrypted HTTP gateway with rate limiting
+/// Run HTTP proxy
 pub async fn run_http_gateway(
     listen_addr: SocketAddr,
     registry: Arc<BackendRegistry>,
@@ -57,81 +75,42 @@ pub async fn run_http_gateway(
     rate_per_sec: u64,
     rate_burst: Duration,
 ) {
-    let make_svc = hyper::service::make_service_fn(move |_| {
-        let reg = registry.clone();
-        let auth = auth_token.clone();
-
-        let svc = ServiceBuilder::new()
-            .layer(RateLimitLayer::new(rate_per_sec, rate_burst))
-            .layer(AddExtensionLayer::new(reg.clone()))
-            .layer(http_middleware(auth))
-            .service_fn(move |req| {
-                let reg2 = reg.clone();
-                async move { route_request(req, reg2).await }
-            });
-
-        async move { Ok::<_, hyper::Error>(svc) }
-    });
-
-    let server = Server::bind(&listen_addr).serve(make_svc);
-    println!("HTTP gateway listening on http://{}", listen_addr);
-    if let Err(err) = server.await {
-        eprintln!("HTTP gateway error: {}", err);
-    }
+        // Shared HTTP client
+    let client = make_client();
+    // Compose middleware layers
+    let (trace_layer, rate_limit_layer, ext_layer, auth_layer) = http_middleware(
+        registry.clone(), auth_token.clone(), rate_per_sec, rate_burst
+    );
+        // Build the base Router
+    let app = Router::new()
+        .fallback(any(move |req| route_request(req.clone(), registry.clone(), client.clone())))
+        .layer((
+            trace_layer.clone(),
+            rate_limit_layer.clone(),
+            ext_layer.clone(),
+            auth_layer.clone().unwrap_or_else(IdentityLayer::new),
+        ));
+    println!("HTTP proxy on http://{}", listen_addr);
+    Server::bind(listen_addr).serve(app.into_make_service()).await.unwrap();
 }
 
-/// Launch a TLS‑secured HTTPS gateway with the same rate limiting
+/// Run HTTPS proxy
 pub async fn run_https_gateway(
     listen_addr: SocketAddr,
     registry: Arc<BackendRegistry>,
-    tls_acceptor: TlsAcceptor,
+    cert_pem: &str,
+    key_pem: &str,
     auth_token: Option<String>,
     rate_per_sec: u64,
     rate_burst: Duration,
 ) {
-    let listener = TcpListener::bind(&listen_addr)
-        .await
-        .expect("Cannot bind HTTPS listener");
-    println!("HTTPS gateway listening on https://{}", listen_addr);
-
-    loop {
-        let (stream, _) = match listener.accept().await {
-            Ok(pair) => pair,
-            Err(e) => {
-                eprintln!("TCP accept error: {}", e);
-                continue;
-            }
-        };
-
-        let acceptor = tls_acceptor.clone();
-        let reg = registry.clone();
-        let auth = auth_token.clone();
-
-        tokio::spawn(async move {
-            let tls_stream = match acceptor.accept(stream).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("TLS handshake failed: {}", e);
-                    return;
-                }
-            };
-
-            let svc = ServiceBuilder::new()
-                .layer(RateLimitLayer::new(rate_per_sec, rate_burst))
-                .layer(AddExtensionLayer::new(reg.clone()))
-                .layer(http_middleware(auth))
-                .service_fn(move |req| {
-                    let reg2 = reg.clone();
-                    async move { route_request(req, reg2).await }
-                });
-
-            if let Err(err) = Http::new()
-                .serve_connection(tls_stream, svc)
-                .with_upgrades()
-                .await
-            {
-                eprintln!("HTTPS connection error: {}", err);
-            }
-        });
-    }
+    let client = make_client();
+    let tls = RustlsConfig::from_pem_file(cert_pem, key_pem).await.unwrap();
+    let app = Router::new()
+        .fallback(any(move |req| route_request(req, registry.clone(), client.clone())))
+        .layer(http_middleware(
+            registry.clone(), auth_token.clone(), rate_per_sec, rate_burst
+        ));
+    println!("HTTPS proxy on https://{}", listen_addr);
+    Server::bind_rustls(listen_addr, tls).serve(app.into_make_service()).await.unwrap();
 }

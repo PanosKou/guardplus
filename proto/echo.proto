@@ -1,0 +1,18 @@
+syntax = "proto3";
+package echo;
+
+// Service definition matching grpc_service.rs
+service Echo {
+  // Method name must match your Rust implementation
+  rpc Echo(EchoRequest) returns (EchoResponse);
+}
+
+// Request message
+message EchoRequest {
+  string message = 1;
+}
+
+// Response message
+message EchoResponse {
+  string message = 1;
+}

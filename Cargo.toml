@@ -5,21 +5,38 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-tonic = "0.7"
-tonic-build = "0.7"
-prost = "0.11"
-tokio = { version = "1", features = ["full"] }
+axum      = "0.8"
+axum-server = { version = "0.3", features = ["tls-rustls"] }
+anyhow    = "1.0"
+async-trait = "0.1"
+consul = "0.3"
+http = "0.2"
 hyper = { version = "0.14", features = ["full"] }
+log       = "0.4"
+tonic = "0.9"
+tonic-build = "0.7"
+tracing = "0.1"
 tower = { version = "0.5", features = ["util", "limit"] }
-tower-http = { version = "0.6", features = ["add-extension"] }
+tower-http = { version = "0.6", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.23"
+thiserror = "1.0"
+tokio-stream = { version = "0.1", features = ["net"] }
+prost = "0.11"
+prost-types = "0.11"
+parking_lot = "0.12"
+proto = "0.1.2"
+rand = "0.8"
+rustls = "0.20"
+rustls-pemfile = "2.0"
+reqwest = "0.12.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-parking_lot = "0.12"
-rand = "0.8"
-tokio-rustls = "0.23"
-rustls = "0.20"
-consul = "0.3"
+serde_yaml = "0.9.34"
+futures = "0.3.31"
+futures-core = "0.3"
+warp = "0.3"            # high-level web framework
 
 [build-dependencies]
+tonic-build       = "0.9"
 protoc-bin-vendored = "3.1.0"
-tonic-build         = "0.7"

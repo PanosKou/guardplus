@@ -1,75 +1,69 @@
-use hyper::{Body, Request, Response, StatusCode};
-use std::convert::Infallible;
-use std::time::Duration;
-use tower::{Layer, ServiceBuilder};
+// src/middleware.rs
+use std::{convert::Infallible, sync::Arc, time::Duration};
+use futures_core::future::BoxFuture;
+use axum::body::Body;
+use axum::http::{Request, Response, StatusCode};
+use async_trait::async_trait;
+use tower::{ServiceBuilder, layer::Layer};
+use tower::limit::RateLimitLayer;
 use tower_http::{
-    auth::RequireAuthorizationLayer,
-    classify::{ServerErrorsFailureClass, SharedClassifier},
-    limit::RateLimitLayer,
-    trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer},
+    trace::{TraceLayer, DefaultMakeSpan, DefaultOnResponse},
+    auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer},
+    add_extension::AddExtensionLayer,
 };
+use crate::backend_registry::BackendRegistry;
 
-/// Compose a stack of middleware layers:
-/// 1. Tracing/logging  
-/// 2. Basic auth (if header matches)  
-/// 3. Rate limiting  
-pub fn http_middleware<B>(
-    auth_token: Option<String>, // e.g. "Bearer SECRET"
-) -> impl Layer<
-    tower_http::middleware::Next<B>,
-    Service = tower_http::middleware::Next<B>,
-    ServiceRequest = Request<B>,
-    ServiceResponse = Response<B>,
-    Error = Infallible,
-    Future = impl std::future::Future<Output = Result<Response<B>, Infallible>>,
->
-where
-    B: Send + 'static,
+/// Bearer token authorizer
+#[derive(Clone)]
+pub struct BearerAuth(pub String);
+
+#[async_trait]
+impl<B> AsyncAuthorizeRequest<B> for BearerAuth
+where B: Send + 'static
 {
-    // Tracing layer
-    let trace_layer = TraceLayer::<Request<B>, Response<B>, SharedClassifier>::new_for_http()
-        .on_request(DefaultOnRequest::new().level(tower_http::trace::Level::INFO))
-        .make_span_with(DefaultMakeSpan::new().include_headers(true))
-        .on_response(DefaultOnResponse::new().level(tower_http::trace::Level::INFO));
+    type RequestBody  = B;
+    type ResponseBody = Body;
+    type Future       = BoxFuture<'static, Result<Request<B>, Response<Body>>>;
 
-    // Basic auth layer (if provided)
-    let auth_layer = auth_token.clone().map(|token| {
-        // Expects header "authorization: Bearer SECRET"
-        RequireAuthorizationLayer::bearer(&token[7..]) // skip “Bearer ”
-    });
-
-    // Rate limit: 100 requests per second with burst capacity of 50
-    let rate_limit_layer = RateLimitLayer::new(100, Duration::from_secs(1));
-
-    // Build the stack
-    let mut builder = ServiceBuilder::new().layer(trace_layer).layer(rate_limit_layer);
-
-    if let Some(auth) = auth_layer {
-        builder = builder.layer(auth);
-    }
-
-    builder
-}
-
-/// Simple function to check a header token if you want custom logic:
-pub async fn check_basic_auth(req: Request<Body>) -> Result<Request<Body>, (Response<Body>, Request<Body>)> {
-    // e.g. expect header “authorization: Bearer SECRET”
-    const SECRET: &str = "SECRET";
-    if let Some(auth) = req.headers().get("authorization") {
-        if auth.to_str().unwrap_or("") == format!("Bearer {}", SECRET) {
-            Ok(req)
-        } else {
+    fn authorize(&mut self, mut req: Request<B>) -> Self::Future {
+        let token = self.0.clone();
+        Box::pin(async move {
+            if let Some(h) = req.headers().get("authorization").and_then(|v| v.to_str().ok()) {
+                if h == token { return Ok(req); }
+            }
             let resp = Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
-                .body(Body::from("Invalid token"))
-                .unwrap();
-            Err((resp, req))
-        }
-    } else {
-        let resp = Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .body(Body::from("Missing auth"))
-            .unwrap();
-        Err((resp, req))
+                .body(Body::empty()).unwrap();
+            Err(resp)
+        })
     }
+}
+
+/// Compose middleware stack
+/// Compose middleware layers for Axum
+pub fn http_middleware(
+    registry: Arc<BackendRegistry>,
+    auth_token: Option<String>,
+    rate_per_sec: u64,
+    rate_burst: Duration,
+) -> (
+    TraceLayer<SharedClassifier<ServerErrorsAsFailures>>,
+    RateLimitLayer,
+    AddExtensionLayer<Arc<BackendRegistry>>,
+    Option<AsyncRequireAuthorizationLayer<BearerAuth>>,
+) {
+    // Tracing layer
+    let trace = TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().include_headers(true))
+        .on_response(DefaultOnResponse::new());
+    // Rate limit layer
+    let rate = RateLimitLayer::new(rate_per_sec, rate_burst);
+    // Registry extension layer
+    let ext = AddExtensionLayer::new(registry);
+    // Optional auth layer
+    let auth_layer = auth_token.map(|tok| AsyncRequireAuthorizationLayer::new(BearerAuth(tok)));
+
+    (trace, rate, ext, auth_layer)
+}
+    sb
 }

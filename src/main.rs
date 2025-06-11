@@ -1,3 +1,5 @@
+// src/main.rs
+
 mod backend_registry;
 mod grpc_service;
 mod http_proxy;
@@ -18,7 +20,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logging
     env_logger::init();
 
-    // 1) Load entire configuration from config.yaml
+    // 1) Load entire configuration
     let cfg = Config::from_file("config.yaml").map_err(|e| {
         error!("Config load failed: {}", e);
         e
@@ -36,10 +38,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     })?;
     let tls_acceptor = tls_cfg.acceptor.clone();
 
-    // 3) Build backend registry dynamically from cfg.backends
+    // 3) Build backend registry
     let registry = Arc::new(BackendRegistry::new());
     for be in &cfg.backends {
-        // register each backend under its service name
         registry.register(&be.name, be.address.clone());
         info!(
             "Registered backend '{}' via {} at {}",
@@ -52,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rate_per_sec = cfg.rate_limit_per_sec;
     let rate_burst = Duration::from_secs(cfg.rate_limit_burst as u64);
 
-    // 4) Spawn HTTPS gateway (TLS)
+    // 4) Spawn HTTPS gateway
     {
         let reg = registry.clone();
         let acceptor = tls_acceptor.clone();
@@ -67,7 +68,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Spawned HTTPS gateway on port {}", cfg.http_port);
     }
 
-    // 5) Spawn HTTP gateway on same port (optional)
+    // 5) Spawn HTTP gateway
     {
         let reg = registry.clone();
         let auth = Some(bearer.clone());
@@ -84,11 +85,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 6) Spawn gRPC gateway
     {
         let reg = registry.clone();
-        let auth = Some(bearer.clone());
         let port = cfg.grpc_port.unwrap_or(50051);
-        let addr = format!("0.0.0.0:{}", port);
+        let addr_str = format!("0.0.0.0:{}", port);
         spawn(async move {
-            grpc_service::run_grpc_gateway(addr, reg, auth)
+            // Only two arguments now: &str and Arc<Registry>
+            grpc_service::run_grpc_gateway(&addr_str, reg)
                 .await
                 .expect("gRPC gateway failed");
         });
@@ -123,13 +124,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Spawned UDP gateway on port {}", port);
     }
 
-    // 9) Print OIDC providers for visibility
+    // 9) Log configured OIDC providers
     println!("OIDC providers configured:");
     for prov in &cfg.auth.oidc_providers {
         println!("- {} @ {}", prov.name, prov.issuer_url);
     }
 
-    // 10) Prevent the main task from exiting
+    // 10) Prevent exit
     loop {
         tokio::time::sleep(Duration::from_secs(3600)).await;
     }

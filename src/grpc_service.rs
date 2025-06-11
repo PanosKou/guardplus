@@ -1,92 +1,94 @@
-use crate::backend_registry::BackendRegistry;
-use tonic::{transport::Server, Request, Response, Status};
-use tonic::transport::Channel;
-use tonic::codegen::InterceptedService;
-use tonic::service::Interceptor;
-use tonic::metadata::{MetadataMap, MetadataValue};
+// src/grpc_service.rs
+
 use std::sync::Arc;
+use tonic::{
+    transport::{Server, Channel},
+    Request, Response, Status,
+    service::Interceptor,
+    metadata::{MetadataMap, KeyAndValueRef},
+};
+use crate::backend_registry::BackendRegistry;
+use crate::echo::{
+    EchoRequest, EchoResponse,
+    echo_server::{Echo, EchoServer},
+    echo_client::EchoClient,
+};
 
-/// Protobuf definitions (in-line for simplicity)
-pub mod echo {
-    tonic::include_proto!("echo");
-}
-
-/// Simple gRPC client interceptor to forward incoming metadata to backend, if needed.
+/// Interceptor that forwards all incoming metadata to the downstream request.
 #[derive(Clone)]
 struct MetadataForwardInterceptor {
     forward_meta: MetadataMap,
 }
 
 impl Interceptor for MetadataForwardInterceptor {
-    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-        // Attach the forwarded metadata
+    fn call(&mut self, mut req: Request<()>) -> Result<Request<()>, Status> {
         for (key, value) in self.forward_meta.iter() {
-            request.metadata_mut().insert(key.clone(), value.clone());
+            // MetadataMap is a HeaderMap under the hood, so iter yields (&HeaderName, &HeaderValue)
+            req.metadata_mut().insert(key.clone(), value.clone());
         }
-        Ok(request)
+        Ok(req)
     }
 }
 
-/// Our gRPC proxy service: receives Echo requests, forwards them to backend Echo service.
+/// Simple gRPC proxy: looks up a backend by metadata then forwards the Echo RPC.
 #[derive(Clone)]
 pub struct EchoProxy {
     registry: Arc<BackendRegistry>,
 }
 
 #[tonic::async_trait]
-impl echo::echo_server::Echo for EchoProxy {
-    async fn say_hello(
+impl Echo for EchoProxy {
+    async fn echo(
         &self,
-        req: Request<echo::EchoRequest>,
-    ) -> Result<Response<echo::EchoReply>, Status> {
-        // Determine service name from metadata “service-name”
+        req: Request<EchoRequest>,
+    ) -> Result<Response<EchoResponse>, Status> {
+        // 1) Extract the service name from metadata
         let service_name = req
             .metadata()
             .get("service-name")
-            .ok_or_else(|| Status::invalid_argument("Missing service-name metadata"))?
+            .ok_or_else(|| Status::invalid_argument("Missing service-name header"))?
             .to_str()
-            .map_err(|_| Status::invalid_argument("Invalid service-name"))?;
+            .map_err(|_| Status::invalid_argument("Invalid service-name header"))?;
 
-        // Pick backend URL
+        // 2) Pick a backend URL by service name
         let target = self
             .registry
             .pick_one(service_name)
-            .ok_or_else(|| Status::unavailable("No backend"))?;
+            .ok_or_else(|| Status::unavailable("No backend available"))?;
 
-        // Connect to backend via Channel
-        let channel = Channel::from_shared(target)
-            .unwrap()
+        // 3) Build a channel to the backend
+        let channel = Channel::from_shared(target.clone())
+            .map_err(|e| Status::internal(format!("Invalid URL: {}", e)))?
             .connect()
             .await
-            .map_err(|e| Status::internal(format!("Channel connect error: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Channel error: {}", e)))?;
 
-        // Forward metadata so backend can know context if needed
+        // 4) Forward incoming metadata
         let interceptor = MetadataForwardInterceptor {
             forward_meta: req.metadata().clone(),
         };
+        let mut client = EchoClient::with_interceptor(channel, interceptor);
 
-        let mut client = echo::echo_client::EchoClient::with_interceptor(channel, interceptor);
-
-        // Forward the request
-        let reply = client
-            .say_hello(req.into_inner())
+        // 5) Forward the request and return the response
+        let response = client
+            .echo(req.into_inner())
             .await?
             .into_inner();
-
-        Ok(Response::new(reply))
+        Ok(Response::new(response))
     }
 }
 
-/// Launch the gRPC server on `listen_addr`
-pub async fn run_grpc_gateway(listen_addr: &str, registry: Arc<BackendRegistry>) -> Result<(), Box<dyn std::error::Error>> {
+/// Launches the gRPC proxy service on the given address (e.g. "0.0.0.0:50051")
+pub async fn run_grpc_gateway(
+    listen_addr: &str,
+    registry: Arc<BackendRegistry>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let addr = listen_addr.parse()?;
-    let echo_svc = EchoProxy {
-        registry: registry.clone(),
-    };
+    let svc = EchoProxy { registry };
 
     println!("gRPC gateway listening on {}", listen_addr);
     Server::builder()
-        .add_service(echo::echo_server::EchoServer::new(echo_svc))
+        .add_service(EchoServer::new(svc))
         .serve(addr)
         .await?;
 

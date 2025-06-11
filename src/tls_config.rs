@@ -1,40 +1,67 @@
 // src/tls_config.rs
-use std::{fs::File, io::BufReader, sync::Arc};
-use tokio_rustls::TlsAcceptor;
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use anyhow::{Context, Result};
 
+use std::{
+    fs::File,
+    io::{self, BufReader},
+    sync::Arc,
+};
+use tokio_rustls::{
+    rustls::{Certificate, PrivateKey, ServerConfig},
+    TlsAcceptor,
+};
+use rustls_pemfile::{certs, pkcs8_private_keys};
+
+/// Holds the Tokio‐Rustls acceptor for your HTTPS gateway.
 pub struct TlsConfig {
-    acceptor: TlsAcceptor,
+    pub acceptor: TlsAcceptor,
 }
 
 impl TlsConfig {
-    /// Load TLS config and return an acceptor ready for HTTPS server.
-    pub fn load(cert_path: &str, key_path: &str) -> Result<Self> {
-        let cert_file = &mut BufReader::new(File::open(cert_path)
-            .with_context(|| format!("opening certificate file '{}'", cert_path))?);
-        let key_file = &mut BufReader::new(File::open(key_path)
-            .with_context(|| format!("opening private key file '{}'", key_path))?);
-
-        let cert_chain: Vec<Certificate> = certs(cert_file)?
+    /// Load certificate chain and private key from PEM files,
+    /// and return a configured `TlsAcceptor`.
+    pub fn load(cert_path: &str, key_path: &str) -> io::Result<Self> {
+        // 1) Read and parse the certificate chain
+        let cert_file = File::open(cert_path)?;
+        let mut cert_reader = BufReader::new(cert_file);
+        let certs = certs(&mut cert_reader)?
             .into_iter()
             .map(Certificate)
-            .collect();
-        let mut keys = pkcs8_private_keys(key_file)?;
-        let key = PrivateKey(keys.remove(0));
+            .collect::<Vec<Certificate>>();
+        if certs.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "No certificates found in cert_path",
+            ));
+        }
 
-        let config = ServerConfig::builder()
+        // 2) Read and parse the private key(s)
+        let key_file = File::open(key_path)?;
+        let mut key_reader = BufReader::new(key_file);
+        let mut keys = pkcs8_private_keys(&mut key_reader)?
+            .into_iter()
+            .map(PrivateKey)
+            .collect::<Vec<PrivateKey>>();
+        if keys.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "No private keys found in key_path",
+            ));
+        }
+        let key = keys.remove(0);
+
+        // 3) Build rustls ServerConfig
+        let mut config = ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
-            .with_single_cert(cert_chain, key)
-            .context("building ServerConfig")?;
+            .with_single_cert(certs, key)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("TLS config error: {}", e)))?;
 
+        // Optional: enable ALPN for HTTP/2 and HTTP/1.1
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+        // 4) Create Tokio‐Rustls acceptor
         let acceptor = TlsAcceptor::from(Arc::new(config));
-        Ok(Self { acceptor })
-    }
 
-    pub fn into_acceptor(self) -> TlsAcceptor {
-        self.acceptor
+        Ok(TlsConfig { acceptor })
     }
 }

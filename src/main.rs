@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         spawn(async move {
             let addr: SocketAddr =
                 format!("0.0.0.0:{}", https_port).parse().expect("invalid HTTPS addr");
-            http_proxy::run_https_gateway(addr, reg, acceptor, auth, rate, burst).await;
+            http_proxy::run_https_gateway(addr, reg, acceptor, auth, rate.into(), burst).await;
         });
         info!("Spawned HTTPS gateway on port {}", https_port);
     }
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         spawn(async move {
             let addr: SocketAddr =
                 format!("0.0.0.0:{}", cfg.http_port).parse().expect("invalid HTTP addr");
-            http_proxy::run_http_gateway(addr, reg, auth, rate, burst).await;
+            http_proxy::run_http_gateway(addr, reg, auth, rate.into(), burst).await;
         });
         info!("Spawned HTTP gateway on port {}", cfg.http_port);
     }
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         spawn(async move {
             let addr: SocketAddr =
                 format!("0.0.0.0:{}", port).parse().expect("invalid TCP addr");
-            tcp_udp_proxy::run_tcp_gateway(addr, auth, reg)
+            tcp_udp_proxy::run_tcp_gateway(addr, auth.expect("REASON"), reg)
                 .await
                 .unwrap_or_else(|e| error!("TCP gateway failed: {}", e));
         });
@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         spawn(async move {
             let addr: SocketAddr =
                 format!("0.0.0.0:{}", port).parse().expect("invalid UDP addr");
-            tcp_udp_proxy::run_udp_gateway(addr, auth, reg)
+            tcp_udp_proxy::run_udp_gateway(addr, auth.expect("REASON"), reg)
                 .await
                 .unwrap_or_else(|e| error!("UDP gateway failed: {}", e));
         });

@@ -14,20 +14,29 @@ pub enum ConfigError {
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub http_port: u16,
+    /// Optional HTTPS port; if absent we’ll default to http_port + 1
+    pub https_port: Option<u16>,
+    /// Optional gRPC port; if absent we’ll default to 50051
+    pub grpc_port:   Option<u16>,
+    /// Optional TCP proxy port; if absent we’ll default to 91000
+    pub tcp_port:    Option<u16>,
+    /// Optional UDP proxy port; if absent we’ll default to 92000
+    pub udp_port:    Option<u16>,
+
     pub auth: Auth,
-    pub tls: Tls,
+    pub tls:  Tls,
     pub backends: Vec<Backend>,
     pub consul_url: String,
     pub tls_mode: String,
-    pub tls_cert_path: String,
-    pub tls_key_path: String,
+    // these two you already have under `tls: Tls`
+    // pub tls_cert_path: String,
+    // pub tls_key_path: String,
     pub tls_domain: String,
-    pub tls_email: String,
+    pub tls_email:  String,
     pub bearer_token: String,
     pub rate_limit_per_sec: u32,
-    pub rate_limit_burst: u32,
+    pub rate_limit_burst:   u32,
 }
-
 #[derive(Debug, Deserialize)]
 pub struct Auth {
     pub oidc_providers: Vec<OidcProvider>,

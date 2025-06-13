@@ -1,5 +1,7 @@
 // src/main.rs
-
+pub mod echo {
+    tonic::include_proto!("echo");
+}
 mod backend_registry;
 mod grpc_service;
 mod http_proxy;

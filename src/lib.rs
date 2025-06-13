@@ -6,8 +6,7 @@ pub mod echo {
     tonic::include_proto!("echo");
 }
 
-// 2) Re-export the gRPC gateway function
-// Expose all other modules so they live in the library crate root:
+// 2) Expose all other modules so they live in the library crate root:
 pub mod backend_registry;
 pub mod grpc_service;
 pub mod http_proxy;

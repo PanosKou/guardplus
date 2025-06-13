@@ -23,30 +23,34 @@ impl TlsConfig {
         // 1) Read and parse the certificate chain
         let cert_file = File::open(cert_path)?;
         let mut cert_reader = BufReader::new(cert_file);
-        let certs = certs(&mut cert_reader)?
-            .into_iter()
-            .map(Certificate)
-            .collect::<Vec<Certificate>>();
-        if certs.is_empty() {
+
+        // rustls-pemfile::certs returns io::Result<Vec<Vec<u8>>>
+        let raw_certs = certs(&mut cert_reader)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("TLS cert parse error: {}", e)))?;
+        if raw_certs.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "No certificates found in cert_path",
             ));
         }
+        // Wrap into rustls::Certificate
+        let certs = raw_certs.into_iter().map(Certificate).collect::<Vec<_>>();
 
         // 2) Read and parse the private key(s)
         let key_file = File::open(key_path)?;
         let mut key_reader = BufReader::new(key_file);
-        let mut keys = pkcs8_private_keys(&mut key_reader)?
-            .into_iter()
-            .map(PrivateKey)
-            .collect::<Vec<PrivateKey>>();
-        if keys.is_empty() {
+
+        // rustls-pemfile::pkcs8_private_keys returns io::Result<Vec<Vec<u8>>>
+        let raw_keys = pkcs8_private_keys(&mut key_reader)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("TLS key parse error: {}", e)))?;
+        if raw_keys.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "No private keys found in key_path",
             ));
         }
+        // Wrap into rustls::PrivateKey
+        let mut keys = raw_keys.into_iter().map(PrivateKey).collect::<Vec<_>>();
         let key = keys.remove(0);
 
         // 3) Build rustls ServerConfig

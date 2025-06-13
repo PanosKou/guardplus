@@ -5,14 +5,14 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-axum      = "0.8"
+axum      = { version = "0.7", features = ["http1","http2"] }
 axum-server = { version = "0.3", features = ["tls-rustls"] }
 anyhow    = "1.0"
 async-trait = "0.1"
 consul = "0.3"
 http = "0.2"
 hyper = { version = "0.14", features = ["full"] }
-log       = "0.4"
+log = "0.4"
 tonic = "0.9"
 tonic-build = "0.7"
 tracing = "0.1"

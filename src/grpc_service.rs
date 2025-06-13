@@ -22,9 +22,19 @@ struct MetadataForwardInterceptor {
 
 impl Interceptor for MetadataForwardInterceptor {
     fn call(&mut self, mut req: Request<()>) -> Result<Request<()>, Status> {
-        for (key, value) in self.forward_meta.iter() {
-            // MetadataMap is a HeaderMap under the hood, so iter yields (&HeaderName, &HeaderValue)
-            req.metadata_mut().insert(key.clone(), value.clone());
+        //use tonic::metadata::KeyAndValueRef;
+
+        for kv in self.forward_meta.iter() {
+            match kv {
+                KeyAndValueRef::Ascii(key, value) => {
+                    // ASCII metadata
+                    req.metadata_mut().insert(key.clone(), value.clone());
+                }
+                KeyAndValueRef::Binary(key, value) => {
+                    // binary metadata
+                    req.metadata_mut().insert_bin(key.clone(), value.clone());
+                }
+            }
         }
         Ok(req)
     }

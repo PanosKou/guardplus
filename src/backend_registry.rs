@@ -1,9 +1,9 @@
 // src/backend_registry.rs
 
-use std::sync::Arc;
 use parking_lot::RwLock;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Service entry for discovery
 #[derive(Debug, Deserialize, Clone)]
@@ -17,7 +17,7 @@ pub struct ServiceEntry {
 #[derive(Debug, Default, Clone)]
 pub struct BackendRegistry {
     services: Arc<RwLock<HashMap<String, Vec<ServiceEntry>>>>,
-    indices:  Arc<RwLock<HashMap<String, usize>>>,
+    indices: Arc<RwLock<HashMap<String, usize>>>,
 }
 
 impl BackendRegistry {
@@ -32,9 +32,7 @@ impl BackendRegistry {
             name: name.to_string(),
             url: url.to_string(),
         };
-        map.entry(name.to_string())
-            .or_default()
-            .push(entry);
+        map.entry(name.to_string()).or_default().push(entry);
     }
 
     /// Remove (exact‐match on URL) a backend under `name`
@@ -72,10 +70,6 @@ impl BackendRegistry {
 
     /// **New**: get the full entries (including `name`) under `name`
     pub fn list_entries(&self, name: &str) -> Vec<ServiceEntry> {
-        self.services
-            .read()
-            .get(name)
-            .cloned()
-            .unwrap_or_default()
+        self.services.read().get(name).cloned().unwrap_or_default()
     }
 }

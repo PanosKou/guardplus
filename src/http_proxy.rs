@@ -4,8 +4,8 @@ use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 use hyper::{
     body::to_bytes,
     server::conn::Http as HyperHttp,
-    service::{make_service_fn, service_fn},
-    Body, Request as HyperRequest, Response as HyperResponse, Server, StatusCode, Uri,
+    service::make_service_fn,
+    Body, Request as HyperRequest, Response as HyperResponse, Server, StatusCode,
 };
 use reqwest::{Client as ReqwestClient, Method as ReqwestMethod};
 use reqwest::header::{HeaderName as ReqwestName, HeaderValue as ReqwestValue};
@@ -18,7 +18,7 @@ use crate::backend_registry::BackendRegistry;
 /// Returns `Ok(req)` if `auth_token` is `None` or matches the `Authorization` header;
 /// otherwise returns a 401 response.
 async fn authorize<B>(
-    mut req: HyperRequest<B>,
+    req: HyperRequest<B>,
     auth_token: &Option<String>,
 ) -> Result<HyperRequest<B>, HyperResponse<Body>> {
     if let Some(token) = auth_token {

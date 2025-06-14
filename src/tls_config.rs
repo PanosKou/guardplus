@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    io::{self, Read},
+    io::{self},
     path::Path,
     sync::Arc,
 };

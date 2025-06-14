@@ -2,7 +2,7 @@ use parking_lot::RwLock;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
-    sync::{Arc, atomic::{AtomicUsize, Ordering}},
+    sync::Arc,
 };
 
 /// Single backend entry
@@ -44,7 +44,7 @@ impl BackendRegistry {
 
     /// Pick one backend URL (round-robin)
     pub fn pick_one(&self, name: &str) -> Option<String> {
-        let mut services = self.services.write();
+        let services = self.services.write();
         let backends = services.get(name)?;
         let mut idx_map = self.indices.write();
         let ctr = idx_map.entry(name.to_string()).or_insert(0);

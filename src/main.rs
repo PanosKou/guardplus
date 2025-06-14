@@ -111,13 +111,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 7) Spawn TCP proxy
     {
         let reg = registry.clone();
-        let auth = Some(bearer.clone());
+        let auth = bearer.clone();
         let port = cfg.tcp_port.unwrap_or(9100);
         spawn(async move {
             let addr: SocketAddr = format!("0.0.0.0:{}", port)
                 .parse()
                 .expect("invalid TCP addr");
-            tcp_udp_proxy::run_tcp_gateway(addr, auth.expect("REASON"), reg)
+            tcp_udp_proxy::run_tcp_gateway(addr, auth, reg)
                 .await
                 .unwrap_or_else(|e| error!("TCP gateway failed: {}", e));
         });
@@ -127,13 +127,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 8) Spawn UDP proxy
     {
         let reg = registry.clone();
-        let auth = Some(bearer);
+        let auth = bearer;
         let port = cfg.udp_port.unwrap_or(9200);
         spawn(async move {
             let addr: SocketAddr = format!("0.0.0.0:{}", port)
                 .parse()
                 .expect("invalid UDP addr");
-            tcp_udp_proxy::run_udp_gateway(addr, auth.expect("REASON"), reg)
+            tcp_udp_proxy::run_udp_gateway(addr, auth, reg)
                 .await
                 .unwrap_or_else(|e| error!("UDP gateway failed: {}", e));
         });

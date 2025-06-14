@@ -1,17 +1,17 @@
 // src/grpc_service.rs
 
-use std::sync::Arc;
-use tonic::{
-    transport::{Server, Channel},
-    Request, Response, Status,
-    service::Interceptor,
-    metadata::{MetadataMap, KeyAndValueRef},
-};
 use crate::backend_registry::BackendRegistry;
 use crate::echo::{
-    EchoRequest, EchoResponse,
-    echo_server::{Echo, EchoServer},
     echo_client::EchoClient,
+    echo_server::{Echo, EchoServer},
+    EchoRequest, EchoResponse,
+};
+use std::sync::Arc;
+use tonic::{
+    metadata::{KeyAndValueRef, MetadataMap},
+    service::Interceptor,
+    transport::{Channel, Server},
+    Request, Response, Status,
 };
 
 /// Interceptor that forwards all incoming metadata to the downstream request.
@@ -48,10 +48,7 @@ pub struct EchoProxy {
 
 #[tonic::async_trait]
 impl Echo for EchoProxy {
-    async fn echo(
-        &self,
-        req: Request<EchoRequest>,
-    ) -> Result<Response<EchoResponse>, Status> {
+    async fn echo(&self, req: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
         // 1) Extract the service name from metadata
         let service_name = req
             .metadata()
@@ -80,10 +77,7 @@ impl Echo for EchoProxy {
         let mut client = EchoClient::with_interceptor(channel, interceptor);
 
         // 5) Forward the request and return the response
-        let response = client
-            .echo(req.into_inner())
-            .await?
-            .into_inner();
+        let response = client.echo(req.into_inner()).await?.into_inner();
         Ok(Response::new(response))
     }
 }

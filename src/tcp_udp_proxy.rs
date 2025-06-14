@@ -3,7 +3,10 @@
 
 use crate::backend_registry::BackendRegistry;
 use std::{io, net::SocketAddr, sync::Arc};
-use tokio::{io::copy_bidirectional, net::{TcpListener, TcpStream, UdpSocket}};
+use tokio::{
+    io::copy_bidirectional,
+    net::{TcpListener, TcpStream, UdpSocket},
+};
 
 /// TCP gateway: accepts incoming TCP connections and proxies to backend from registry
 pub async fn run_tcp_gateway(
@@ -12,12 +15,15 @@ pub async fn run_tcp_gateway(
     registry: Arc<BackendRegistry>,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(listen_addr).await?;
-    println!("[tcp] Listening on {} for service '{}'", listen_addr, service_name);
+    println!(
+        "[tcp] Listening on {} for service '{}'",
+        listen_addr, service_name
+    );
 
     loop {
         let (mut inbound, _) = listener.accept().await?;
         let registry = registry.clone();
-        let service = service_name.clone();  // clone here, service_name itself never moves
+        let service = service_name.clone(); // clone here, service_name itself never moves
 
         tokio::spawn(async move {
             if let Some(backend) = registry.pick_one(&service) {
@@ -44,7 +50,10 @@ pub async fn run_udp_gateway(
 ) -> io::Result<()> {
     // Wrap in Arc so we can clone it into each task
     let socket = Arc::new(UdpSocket::bind(listen_addr).await?);
-    println!("[udp] Listening on {} for service '{}'", listen_addr, service_name);
+    println!(
+        "[udp] Listening on {} for service '{}'",
+        listen_addr, service_name
+    );
     let mut buf = [0u8; 2048];
 
     loop {
@@ -52,7 +61,7 @@ pub async fn run_udp_gateway(
         let data = buf[..len].to_vec();
         let registry = registry.clone();
         let service = service_name.clone();
-        let local_socket = socket.clone();  // Arc<UdpSocket> clone
+        let local_socket = socket.clone(); // Arc<UdpSocket> clone
 
         tokio::spawn(async move {
             if let Some(backend) = registry.pick_one(&service) {
@@ -66,7 +75,10 @@ pub async fn run_udp_gateway(
                         let _ = local_socket.send_to(&resp_buf[..resp_len], peer_addr).await;
                     }
                 } else {
-                    eprintln!("[udp] Failed to bind ephemeral socket for backend {}", backend);
+                    eprintln!(
+                        "[udp] Failed to bind ephemeral socket for backend {}",
+                        backend
+                    );
                 }
             } else {
                 eprintln!("[udp] No backend found for service '{}'", service);

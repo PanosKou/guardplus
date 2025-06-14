@@ -1,9 +1,6 @@
 use parking_lot::RwLock;
 use serde::Deserialize;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 /// Single backend entry
 #[derive(Debug, Deserialize, Clone)]

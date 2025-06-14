@@ -1,12 +1,12 @@
 // src/tls_config.rs
 
+use pem::Pem;
 use std::{
     fs,
     io::{self},
     path::Path,
     sync::Arc,
 };
-use pem::Pem;
 use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
     TlsAcceptor,
@@ -28,8 +28,12 @@ impl TlsConfig {
         // Read entire cert file
         let cert_bytes = fs::read(&cert_path)?;
         // Parse all PEM blocks
-        let certs_pem = pem::parse_many(&cert_bytes)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("PEM parse error (certs): {}", e)))?;
+        let certs_pem = pem::parse_many(&cert_bytes).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("PEM parse error (certs): {}", e),
+            )
+        })?;
         // Filter CERTIFICATE blocks
         let certs_der: Vec<Certificate> = certs_pem
             .into_iter()
@@ -49,8 +53,12 @@ impl TlsConfig {
         // Read entire key file
         let key_bytes = fs::read(&key_path)?;
         // Parse all PEM blocks
-        let keys_pem = pem::parse_many(&key_bytes)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("PEM parse error (keys): {}", e)))?;
+        let keys_pem = pem::parse_many(&key_bytes).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("PEM parse error (keys): {}", e),
+            )
+        })?;
         // Filter any PRIVATE KEY (PKCS#8 or RSA)
         let mut keys_der: Vec<PrivateKey> = keys_pem
             .into_iter()
@@ -75,7 +83,12 @@ impl TlsConfig {
             .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(certs_der, priv_key)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("TLS config error: {}", e)))?;
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("TLS config error: {}", e),
+                )
+            })?;
 
         // ALPN
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];

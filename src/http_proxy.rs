@@ -1,18 +1,16 @@
 // src/http_proxy.rs
 
-use std::{convert::Infallible, net::SocketAddr, sync::Arc};
-use hyper::{
-    body::to_bytes,
-    server::conn::Http as HyperHttp,
-    service::make_service_fn,
-    Body, Request as HyperRequest, Response as HyperResponse, Server, StatusCode,
-};
-use reqwest::{Client as ReqwestClient, Method as ReqwestMethod};
-use reqwest::header::{HeaderName as ReqwestName, HeaderValue as ReqwestValue};
-use tokio_rustls::TlsAcceptor;
-use tower::ServiceBuilder;
-use tower::limit::RateLimitLayer;
 use crate::backend_registry::BackendRegistry;
+use hyper::{
+    body::to_bytes, server::conn::Http as HyperHttp, service::make_service_fn, Body,
+    Request as HyperRequest, Response as HyperResponse, Server, StatusCode,
+};
+use reqwest::header::{HeaderName as ReqwestName, HeaderValue as ReqwestValue};
+use reqwest::{Client as ReqwestClient, Method as ReqwestMethod};
+use std::{convert::Infallible, net::SocketAddr, sync::Arc};
+use tokio_rustls::TlsAcceptor;
+use tower::limit::RateLimitLayer;
+use tower::ServiceBuilder;
 
 /// Single‐place to do bearer validation.
 /// Returns `Ok(req)` if `auth_token` is `None` or matches the `Authorization` header;
@@ -23,7 +21,11 @@ async fn authorize<B>(
 ) -> Result<HyperRequest<B>, HyperResponse<Body>> {
     if let Some(token) = auth_token {
         // Expect header exactly equal to token
-        match req.headers().get("authorization").and_then(|v| v.to_str().ok()) {
+        match req
+            .headers()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+        {
             Some(h) if h == token => Ok(req),
             _ => {
                 let resp = HyperResponse::builder()
@@ -55,14 +57,15 @@ async fn route_request(
     let path = req.uri().path().trim_start_matches('/').to_string();
     let mut parts = path.splitn(2, '/');
     let service = parts.next().unwrap_or("");
-    let suffix  = parts.next().unwrap_or("");
+    let suffix = parts.next().unwrap_or("");
 
     // 3) Pick backend
     if let Some(target) = registry.pick_one(service) {
         let backend_url = format!("{}/{}", target.trim_end_matches('/'), suffix);
 
         // 4) Build reqwest request
-        let method = req.method()
+        let method = req
+            .method()
             .as_str()
             .parse::<ReqwestMethod>()
             .expect("valid HTTP method");
@@ -71,10 +74,9 @@ async fn route_request(
         // 5) Copy headers
         for (name, value) in req.headers().iter() {
             if let Ok(val_str) = value.to_str() {
-                let hn = ReqwestName::from_bytes(name.as_str().as_bytes())
-                    .expect("header name parse");
-                let hv = ReqwestValue::from_str(val_str)
-                    .expect("header value parse");
+                let hn =
+                    ReqwestName::from_bytes(name.as_str().as_bytes()).expect("header name parse");
+                let hv = ReqwestValue::from_str(val_str).expect("header value parse");
                 rb = rb.header(hn, hv);
             }
         }
@@ -86,11 +88,10 @@ async fn route_request(
         // 7) Dispatch and reassemble
         match rb.send().await {
             Ok(res) => {
-                let mut builder = HyperResponse::builder()
-                    .status(
-                        StatusCode::from_u16(res.status().as_u16())
-                            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                    );
+                let mut builder = HyperResponse::builder().status(
+                    StatusCode::from_u16(res.status().as_u16())
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                );
                 for (name, value) in res.headers().iter() {
                     if let Ok(val_str) = value.to_str() {
                         builder = builder.header(name.as_str(), val_str);
@@ -127,27 +128,22 @@ pub async fn run_http_gateway(
         .unwrap();
 
     let make_svc = make_service_fn(move |_| {
-        let reg  = registry.clone();
-        let cli  = client.clone();
+        let reg = registry.clone();
+        let cli = client.clone();
         let auth = auth_token.clone();
 
         async move {
             // Only rate‐limit at the Tower level
             let svc = ServiceBuilder::new()
                 .layer(RateLimitLayer::new(rate_per_sec, rate_burst))
-                .service_fn(move |req| {
-                    route_request(req, reg.clone(), cli.clone(), auth.clone())
-                });
+                .service_fn(move |req| route_request(req, reg.clone(), cli.clone(), auth.clone()));
 
             Ok::<_, Infallible>(svc)
         }
     });
 
     println!("HTTP listening on http://{}", listen_addr);
-    Server::bind(&listen_addr)
-        .serve(make_svc)
-        .await
-        .unwrap();
+    Server::bind(&listen_addr).serve(make_svc).await.unwrap();
 }
 
 pub async fn run_https_gateway(
@@ -171,11 +167,11 @@ pub async fn run_https_gateway(
     loop {
         let (socket, _) = listener.accept().await.unwrap();
         let acceptor = tls_acceptor.clone();
-        let reg      = registry.clone();
-        let cli      = client.clone();
-        let auth     = auth_token.clone();
-        let rate     = rate_per_sec;
-        let burst    = rate_burst;
+        let reg = registry.clone();
+        let cli = client.clone();
+        let auth = auth_token.clone();
+        let rate = rate_per_sec;
+        let burst = rate_burst;
 
         tokio::spawn(async move {
             if let Ok(stream) = acceptor.accept(socket).await {

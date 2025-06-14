@@ -1,20 +1,20 @@
 // src/middleware.rs
 
-use std::{sync::Arc, time::Duration};
+use crate::backend_registry::BackendRegistry;
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
 use axum::Router;
 use futures_core::future::BoxFuture;
+use std::{sync::Arc, time::Duration};
 use tower::layer::Layer;
-use tower::ServiceBuilder;
 use tower::limit::RateLimitLayer;
+use tower::ServiceBuilder;
 use tower_http::{
-    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
-    auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer},
     add_extension::AddExtensionLayer,
+    auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer},
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
-use crate::backend_registry::BackendRegistry;
 
 /// Simple bearer‐token authorizer
 #[derive(Clone)]
@@ -25,9 +25,9 @@ impl<B> AsyncAuthorizeRequest<B> for BearerAuth
 where
     B: Send + 'static,
 {
-    type RequestBody  = B;
+    type RequestBody = B;
     type ResponseBody = Body;
-    type Future       = BoxFuture<'static, Result<Request<B>, Response<Body>>>;
+    type Future = BoxFuture<'static, Result<Request<B>, Response<Body>>>;
 
     fn authorize(&mut self, req: Request<B>) -> Self::Future {
         let token = self.0.clone();
@@ -79,8 +79,6 @@ pub fn http_middleware(
         .layer(trace)
         .layer(rate)
         .layer(ext)
-        .option_layer(auth_token.map(|tok| {
-            AsyncRequireAuthorizationLayer::new(BearerAuth(tok))
-        }))
+        .option_layer(auth_token.map(|tok| AsyncRequireAuthorizationLayer::new(BearerAuth(tok))))
         .into_inner()
 }

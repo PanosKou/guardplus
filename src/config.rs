@@ -5,7 +5,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("failed to open config file '{path}' : {source}")]
-    Io { path: String, source: std::io::Error },
+    Io {
+        path: String,
+        source: std::io::Error,
+    },
 
     #[error("failed to parse YAML config: {0}")]
     Yaml(#[from] serde_yaml::Error),
@@ -17,14 +20,14 @@ pub struct Config {
     /// Optional HTTPS port; if absent we’ll default to http_port + 1
     pub https_port: Option<u16>,
     /// Optional gRPC port; if absent we’ll default to 50051
-    pub grpc_port:   Option<u16>,
+    pub grpc_port: Option<u16>,
     /// Optional TCP proxy port; if absent we’ll default to 91000
-    pub tcp_port:    Option<u16>,
+    pub tcp_port: Option<u16>,
     /// Optional UDP proxy port; if absent we’ll default to 92000
-    pub udp_port:    Option<u16>,
+    pub udp_port: Option<u16>,
 
     pub auth: Auth,
-    pub tls:  Tls,
+    pub tls: Tls,
     pub backends: Vec<Backend>,
     pub consul_url: String,
     pub tls_mode: String,
@@ -32,10 +35,10 @@ pub struct Config {
     // pub tls_cert_path: String,
     // pub tls_key_path: String,
     pub tls_domain: String,
-    pub tls_email:  String,
+    pub tls_email: String,
     pub bearer_token: String,
     pub rate_limit_per_sec: u32,
-    pub rate_limit_burst:   u32,
+    pub rate_limit_burst: u32,
 }
 #[derive(Debug, Deserialize)]
 pub struct Auth {
@@ -67,8 +70,10 @@ impl Config {
     /// Load and parse configuration from the given YAML file path.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
         let p = path.as_ref();
-        let file = File::open(p)
-            .map_err(|e| ConfigError::Io { path: p.display().to_string(), source: e })?;
+        let file = File::open(p).map_err(|e| ConfigError::Io {
+            path: p.display().to_string(),
+            source: e,
+        })?;
         let reader = BufReader::new(file);
         let cfg = serde_yaml::from_reader(reader)?; // uses serde_yaml::from_reader :contentReference[oaicite:0]{index=0}
         Ok(cfg)

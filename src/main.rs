@@ -50,6 +50,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "Registered backend '{}' via {} at {}",
             be.name, be.protocol, be.address
         );
+        let entries = registry.list_entries(&be.name);
+        for entry in entries {
+            println!("Service {} → {}", entry.name, entry.url);
+        }
     }
 
     // Common parameters

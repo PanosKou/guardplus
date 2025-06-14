@@ -1,4 +1,6 @@
 // src/main.rs
+#![allow(dead_code, unused_variables, unused_imports)]
+
 pub mod echo {
     tonic::include_proto!("echo");
 }

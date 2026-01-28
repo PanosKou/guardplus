@@ -8,7 +8,7 @@ use std::sync::Arc;
 /// Service entry for discovery
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServiceEntry {
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     pub name: String,
     pub url: String,
 }
@@ -36,7 +36,7 @@ impl BackendRegistry {
     }
 
     /// Remove (exact‐match on URL) a backend under `name`
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     pub fn deregister(&self, name: &str, url: &str) {
         if let Some(vec) = self.services.write().get_mut(name) {
             vec.retain(|e| e.url != url);
@@ -59,7 +59,7 @@ impl BackendRegistry {
     }
 
     /// List all backend URLs under `name`
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     pub fn list(&self, name: &str) -> Vec<String> {
         self.services
             .read()

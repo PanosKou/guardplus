@@ -31,12 +31,9 @@ pub struct Config {
     pub backends: Vec<Backend>,
     pub consul_url: String,
     pub tls_mode: String,
-    // these two you already have under `tls: Tls`
-    // pub tls_cert_path: String,
-    // pub tls_key_path: String,
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     pub tls_domain: String,
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     pub tls_email: String,
     pub bearer_token: String,
     pub rate_limit_per_sec: u32,
@@ -51,7 +48,7 @@ pub struct Auth {
 pub struct OidcProvider {
     pub name: String,
     pub issuer_url: String,
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     pub audience: String,
 }
 
@@ -66,7 +63,7 @@ pub struct Backend {
     pub name: String,
     pub protocol: String,
     pub address: String,
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     pub routes: Vec<String>,
 }
 

@@ -123,7 +123,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .await
                 .unwrap_or_else(|e| error!("TCP gateway failed: {}", e));
         });
-        info!("Spawned TCP gateway on port {} for service '{}'", port, be.name);
+        info!(
+            "Spawned TCP gateway on port {} for service '{}'",
+            port, be.name
+        );
     }
 
     // 8) Spawn UDP proxy for each UDP backend
@@ -139,7 +142,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .await
                 .unwrap_or_else(|e| error!("UDP gateway failed: {}", e));
         });
-        info!("Spawned UDP gateway on port {} for service '{}'", port, be.name);
+        info!(
+            "Spawned UDP gateway on port {} for service '{}'",
+            port, be.name
+        );
     }
 
     // 9) Log configured OIDC providers

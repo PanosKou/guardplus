@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 env:
-  IMAGE_NAME: guardplus
+  IMAGE_NAME: gamb
   IMAGE_TAG: ${{ github.ref_name }}
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/guardplus:${{ env.IMAGE_TAG }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/gamb:${{ env.IMAGE_TAG }}
 
   helm-deploy:
     needs: docker-build
@@ -44,4 +44,4 @@ jobs:
 
       - name: Deploy to Kubernetes via Helm
         run: |
-          helm upgrade --install guardplus ./chart             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/guardplus             --set image.tag=${{ env.IMAGE_TAG }}             --kubeconfig ${{ secrets.KUBECONFIG_CONTENT }}
+          helm upgrade --install gamb ./chart             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/gamb             --set image.tag=${{ env.IMAGE_TAG }}             --kubeconfig ${{ secrets.KUBECONFIG_CONTENT }}

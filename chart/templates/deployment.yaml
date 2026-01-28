@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: guardplus
+  name: gamb
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: guardplus
+      app: gamb
   template:
     metadata:
       labels:
-        app: guardplus
+        app: gamb
     spec:
       containers:
-        - name: guardplus
+        - name: gamb
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           ports:
             - containerPort: {{ .Values.service.port }}

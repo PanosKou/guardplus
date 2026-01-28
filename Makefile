@@ -1,4 +1,4 @@
-APP_NAME=guardplus
+APP_NAME=gamb
 
 all: build
 

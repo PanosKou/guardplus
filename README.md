@@ -1,6 +1,6 @@
-# GuardPlus Gateway
+# Gamb Gateway
 
-GuardPlus is a high-performance, extensible Rust-based service gateway designed as a modern, secure, and observable replacement for Traefik, NGINX, or Apache.
+Gamb is a high-performance, extensible Rust-based service gateway designed as a modern, secure, and observable replacement for Traefik, NGINX, or Apache.
 
 ## Key Features
 
@@ -50,7 +50,7 @@ RUST_LOG=info cargo run
 RUST_LOG=info cargo run --release
 
 # Or run the binary directly
-RUST_LOG=info ./target/release/guard_plus
+RUST_LOG=info ./target/release/gamb
 ```
 
 ### Test
@@ -164,7 +164,7 @@ openssl req -x509 -newkey rsa:4096 \
 
 ## Quick Start
 
-### 1. Build and run GuardPlus
+### 1. Build and run Gamb
 
 ```bash
 # Generate TLS certificates
@@ -200,7 +200,7 @@ curl -H "Authorization: Bearer mysecrettoken" http://localhost:8080/echo/hello
 ### Build
 
 ```bash
-docker build -t guardplus .
+docker build -t gamb .
 ```
 
 ### Run
@@ -210,7 +210,7 @@ docker run -p 8080:8080 -p 8081:8081 \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/cert.pem:/app/cert.pem \
   -v $(pwd)/key.pem:/app/key.pem \
-  guardplus
+  gamb
 ```
 
 ---
@@ -218,8 +218,8 @@ docker run -p 8080:8080 -p 8081:8081 \
 ## Kubernetes (Helm)
 
 ```bash
-helm install guardplus ./chart \
-  --set image.repository=guardplus \
+helm install gamb ./chart \
+  --set image.repository=gamb \
   --set image.tag=latest
 ```
 
@@ -229,7 +229,7 @@ helm install guardplus ./chart \
 
 ```
                     ┌─────────────────────────────────────┐
-                    │          GuardPlus Gateway          │
+                    │            Gamb Gateway             │
                     ├─────────────────────────────────────┤
  HTTP :8080  ──────►│  HTTP Proxy (Axum + Tower)          │──────► Backend Services
 HTTPS :8081  ──────►│  ├─ Bearer Auth Middleware          │
@@ -291,7 +291,7 @@ let response = client.echo(request).await?;
 ## Project Structure
 
 ```
-guardplus/
+gamb/
 ├── src/
 │   ├── main.rs              # Entry point, spawns all gateways
 │   ├── config.rs            # YAML configuration parsing

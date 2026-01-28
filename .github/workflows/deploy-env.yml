@@ -13,7 +13,7 @@ on:
           - production
 
 env:
-  IMAGE_NAME: guardplus
+  IMAGE_NAME: gamb
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/guardplus:${{ github.event.inputs.environment }}-${{ env.IMAGE_TAG }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/gamb:${{ github.event.inputs.environment }}-${{ env.IMAGE_TAG }}
 
   helm-deploy:
     needs: docker-build
@@ -51,4 +51,4 @@ jobs:
 
       - name: Deploy to Kubernetes via Helm
         run: |
-          helm upgrade --install guardplus-${{ github.event.inputs.environment }} ./chart             --namespace ${{ github.event.inputs.environment }}             --create-namespace             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/guardplus             --set image.tag=${{ github.event.inputs.environment }}-${{ env.IMAGE_TAG }}             --kubeconfig ${{ secrets['KUBECONFIG_' + github.event.inputs.environment | upper] }}
+          helm upgrade --install gamb-${{ github.event.inputs.environment }} ./chart             --namespace ${{ github.event.inputs.environment }}             --create-namespace             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/gamb             --set image.tag=${{ github.event.inputs.environment }}-${{ env.IMAGE_TAG }}             --kubeconfig ${{ secrets['KUBECONFIG_' + github.event.inputs.environment | upper] }}

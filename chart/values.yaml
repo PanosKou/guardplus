@@ -1,5 +1,5 @@
 image:
-  repository: guardplus
+  repository: gamb
   tag: latest
 
 service:
@@ -8,4 +8,4 @@ service:
 
 tls:
   enabled: true
-  certSecretName: guardplus-tls
+  certSecretName: gamb-tls

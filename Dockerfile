@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 WORKDIR /app
 
 # Copy binary from build stage
-COPY --from=builder /app/target/release/guard_plus /app/guard_plus
+COPY --from=builder /app/target/release/gamb /app/gamb
 
 # Optional: copy config + TLS certs (if using file-based TLS)
 COPY config.yaml /app/config.yaml
@@ -37,12 +37,12 @@ EXPOSE 8080 8443 50051 9100 9200
 ENV GATEWAY_CONFIG=/app/config.yaml
 
 # Run the gateway
-ENTRYPOINT ["/app/guard_plus"]
+ENTRYPOINT ["/app/gamb"]
 
 # How-to
-#docker build -t guard-plus .
+#docker build -t gamb .
 #docker run -p 8080:8080 -p 8443:8443 -p 50051:50051 -p 9100:9100 -p 9200:9200 \
 #  -v $(pwd)/config.yaml:/app/config.yaml \
 #  -v $(pwd)/cert.pem:/app/cert.pem \
-#  -v $(pwd)/key.pem:/app/key.pem #\
-#  guard-plus
+#  -v $(pwd)/key.pem:/app/key.pem \
+#  gamb

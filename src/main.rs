@@ -6,6 +6,7 @@ pub mod echo {
 }
 mod backend_registry;
 mod config;
+mod consul_integration;
 mod grpc_service;
 mod http_proxy;
 mod middleware;

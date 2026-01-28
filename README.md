@@ -1,166 +1,337 @@
-
 # GuardPlus Gateway
 
 GuardPlus is a high-performance, extensible Rust-based service gateway designed as a modern, secure, and observable replacement for Traefik, NGINX, or Apache.
 
-## 🔥 Key Features
+## Key Features
 
-- 🔐 **OIDC/JWT Auth** — Multi-provider (Google, GitHub, Auth0) with JWKS auto-discovery
-- 📊 **Prometheus Metrics** — Rich HTTP/gRPC/TCP observability
-- ⚡ **gRPC + TCP/UDP Support** — Proxy multiple protocols with metrics
-- 🔁 **Consul Integration** — Dynamic backend discovery (planned)
-- 🛡️ **Rate Limiting** — Custom middleware with full metric export
-- 🔧 **Kubernetes Ready** — Includes Helm chart, Dockerfile, Makefile
+- **Multi-Protocol Support** - HTTP, HTTPS, gRPC, TCP, and UDP proxying
+- **Bearer Token Auth** - Simple token-based authentication
+- **TLS Termination** - Secure connections with rustls (no OpenSSL dependency)
+- **Rate Limiting** - Configurable request throttling via Tower middleware
+- **Round-Robin Load Balancing** - Distribute traffic across multiple backends
+- **Kubernetes Ready** - Includes Helm chart and Dockerfile
 
 ---
 
-## 🚀 Quick Start
+## Prerequisites
 
-### 🐳 Docker
+- **Rust** 1.70+ (install via [rustup](https://rustup.rs/))
+- **OpenSSL** development libraries (for some dependencies)
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install pkg-config libssl-dev
+
+# macOS
+brew install openssl
+```
+
+---
+
+## CLI Commands
+
+### Build
+
+```bash
+# Debug build
+cargo build
+
+# Release build (optimized)
+cargo build --release
+```
+
+### Run
+
+```bash
+# Run with debug logging
+RUST_LOG=info cargo run
+
+# Run release build
+RUST_LOG=info cargo run --release
+
+# Or run the binary directly
+RUST_LOG=info ./target/release/guard_plus
+```
+
+### Test
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+```
+
+### Format
+
+```bash
+# Check formatting
+cargo fmt --check
+
+# Apply formatting
+cargo fmt
+```
+
+### Lint
+
+```bash
+# Run clippy linter
+cargo clippy
+
+# Run clippy with warnings as errors
+cargo clippy -- -D warnings
+```
+
+### Clean
+
+```bash
+# Remove build artifacts
+cargo clean
+```
+
+---
+
+## Configuration
+
+Create a `config.yaml` file in the project root:
+
+```yaml
+# HTTP listening port
+http_port: 8080
+
+# Optional ports (defaults shown)
+# https_port: 8081      # defaults to http_port + 1
+# grpc_port: 50051
+# tcp_port: 9100
+# udp_port: 9200
+
+# Authentication
+auth:
+  oidc_providers:
+    - name: github
+      issuer_url: "https://token.actions.githubusercontent.com"
+      audience: "https://github.com/org"
+
+# TLS certificates
+tls:
+  cert_path: "./cert.pem"
+  key_path: "./key.pem"
+
+# Backend services
+backends:
+  - name: api
+    protocol: http
+    address: "http://127.0.0.1:9000"
+    routes: ["/api"]
+  - name: grpc_backend
+    protocol: grpc
+    address: "http://127.0.0.1:50052"
+    routes: []
+  - name: tcpservice
+    protocol: tcp
+    address: "127.0.0.1:9100"
+    routes: []
+
+# Service discovery (planned)
+consul_url: "http://localhost:8500"
+tls_mode: "file"
+tls_domain: "example.com"
+tls_email: "admin@example.com"
+
+# Bearer token for authentication
+bearer_token: "Bearer mysecrettoken"
+
+# Rate limiting
+rate_limit_per_sec: 100
+rate_limit_burst: 50
+```
+
+---
+
+## TLS Certificates
+
+Generate self-signed certificates for development:
+
+```bash
+openssl req -x509 -newkey rsa:4096 \
+  -keyout key.pem -out cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=localhost"
+```
+
+---
+
+## Quick Start
+
+### 1. Build and run GuardPlus
+
+```bash
+# Generate TLS certificates
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
+
+# Build and run
+RUST_LOG=info cargo run
+```
+
+### 2. Start a test backend
+
+```bash
+# Simple Python HTTP server on port 8087
+python3 -m http.server 8087
+```
+
+### 3. Test the proxy
+
+```bash
+# Without auth (should return 401)
+curl http://localhost:8080/echo/test
+# Returns: 401 Unauthorized
+
+# With auth (proxies to backend)
+curl -H "Authorization: Bearer mysecrettoken" http://localhost:8080/echo/hello
+# Returns response from backend
+```
+
+---
+
+## Docker
+
+### Build
+
 ```bash
 docker build -t guardplus .
-docker run -p 8080:8080 \
+```
+
+### Run
+
+```bash
+docker run -p 8080:8080 -p 8081:8081 \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/cert.pem:/app/cert.pem \
   -v $(pwd)/key.pem:/app/key.pem \
   guardplus
 ```
 
-### ⎈ Helm (Kubernetes)
+---
+
+## Kubernetes (Helm)
+
 ```bash
 helm install guardplus ./chart \
-  --set image.repository=guardplus --set image.tag=latest
+  --set image.repository=guardplus \
+  --set image.tag=latest
 ```
 
 ---
 
-## ⚙️ Configuration Example (`config.yaml`)
+## Architecture
 
-```yaml
-http_port: 8080
-
-auth:
-  oidc_providers:
-    - name: google
-      issuer_url: "https://accounts.google.com"
-      audience: "your-client-id"
-
-tls:
-  cert_path: "./cert.pem"
-  key_path: "./key.pem"
-
-consul:
-  enabled: true
-  url: "http://localhost:8500"
-
-backends:
-  - name: http-api
-    protocol: http
-    address: "http://localhost:9000"
-    routes: ["/api/"]
+```
+                    ┌─────────────────────────────────────┐
+                    │          GuardPlus Gateway          │
+                    ├─────────────────────────────────────┤
+ HTTP :8080  ──────►│  HTTP Proxy (Axum + Tower)          │──────► Backend Services
+HTTPS :8081  ──────►│  ├─ Bearer Auth Middleware          │
+ gRPC :50051 ──────►│  ├─ Rate Limiting                   │
+  TCP :9100  ──────►│  └─ Round-Robin Load Balancing      │
+  UDP :9200  ──────►│                                     │
+                    │  Backend Registry (Thread-safe)     │
+                    └─────────────────────────────────────┘
 ```
 
 ---
 
-## 📈 Metrics
-Exposed at `/metrics` in Prometheus format.
+## Testing Each Protocol
 
-| Metric                            | Description                           |
-|----------------------------------|---------------------------------------|
-| `guardplus_backend_requests`     | Count of routed requests              |
-| `guardplus_response_latency_ms`  | Histogram of request durations        |
-| `guardplus_grpc_requests`        | gRPC service/method counts            |
-| `guardplus_tls_cert_expiry_days`| TLS cert expiration timeline          |
-| `guardplus_ratelimit_blocked`    | Count of blocked requests             |
-
----
-
-## 📊 Grafana Dashboard
-Use the included JSON dashboard:
-📥 `guardplus_grafana_dashboard.json`
-
----
-
-## 🛡️ Maturity Overview
-
-| Capability                       | Status          |
-|----------------------------------|-----------------|
-| OIDC/Authn/Authz                 | ✅ Production    |
-| HTTP/gRPC/TCP Proxying           | ✅ Production    |
-| Metrics + Observability          | ✅ Production    |
-| TLS Termination                  | ✅ Production    |
-| Rate Limiting                    | ✅ Stable        |
-| Consul Discovery                 | 🛠️ Planned       |
-| Hot Config Reload                | 🛠️ Planned       |
-| UI/Dashboard                     | ❌ Not yet       |
-| Canary / A/B Routing             | 🛠️ Next phase    |
-
----
-
-## 🙋 Contributing
-Want to build Rust-powered edge tooling? PRs welcome!
-
-## 📄 License
-Apache-2.0
-
-
-## Notes
-Build
-```bash
-cd guardplus
-cargo build --release
-```
-Run local mock backends
-You’ll want something listening on the ports we registered (9000/9001 for HTTP, 50052 for gRPC, 9100/9101 for TCP, 9200/9201 for UDP). For example, in separate terminals:
-
-# HTTP backends for “foo”
-```bash
-python3 -m http.server 9000
-python3 -m http.server 9001
-```
-gRPC mock on 50052 (you can write a quick Tonic echo server that implements the same proto).
-Or reuse the `echo` service from grpc_service.rs by spawning a Tonic server on 50052.
-
-# Simple TCP echo servers on 9100/9101:
-```
-nc -l 9100 -c 'xargs -n1 echo'
-nc -l 9101 -c 'xargs -n1 echo'
-```
-# UDP echo on 9200/9201:
-```
-socat UDP-LISTEN:9200,reuseaddr,fork UDP:0.0.0.0:9200
-socat UDP-LISTEN:9201,reuseaddr,fork UDP:0.0.0.0:9201
-```
-Run “Guard Plus”
-```bash
-RUST_LOG=info cargo run --release
-```
-Test HTTP
-```bash
-curl http://localhost:8080/foo/
-```
-# Should return whatever the Python HTTP server at port 9000 or 9001 serves.
-Test TCP
+### HTTP/HTTPS
 
 ```bash
-# Connect to the TCP gateway at 91000
-nc localhost 91000
-hello tcp
+# Test HTTP proxy with auth
+curl -H "Authorization: Bearer mysecrettoken" http://localhost:8080/servicename/path
+
+# Test HTTPS (with self-signed cert)
+curl -k -H "Authorization: Bearer mysecrettoken" https://localhost:8081/servicename/path
 ```
-# Should echo back “hello tcp”
-Test UDP
+
+### TCP
+
 ```bash
-echo -n "hello udp" | nc -u -w1 localhost 92000
-# Should reply with “hello udp”
+# Start a TCP echo backend
+nc -l 9100 -c 'cat'
+
+# Connect through the gateway
+nc localhost 9100
+hello
+# Should echo back: hello
 ```
-Test gRPC
-Write a small gRPC client that does:
+
+### UDP
+
+```bash
+# Start a UDP echo backend
+socat UDP-LISTEN:9200,reuseaddr,fork EXEC:cat
+
+# Send through gateway
+echo "hello" | nc -u -w1 localhost 9200
+```
+
+### gRPC
 
 ```rust
+// Example gRPC client
 let mut client = EchoClient::connect("http://localhost:50051").await?;
-let mut request = Request::new(EchoRequest { message: "hi".into() });
-request.metadata_mut().insert("service-name", MetadataValue::from_static("bar"));
-let response = client.say_hello(request).await?;
-println!("REPLY={}", response.into_inner().message);
-That will flow through the gateway to whichever backend (e.g. 127.0.0.1:50052).
+let mut request = Request::new(EchoRequest { message: "hello".into() });
+request.metadata_mut().insert("service-name", "grpc_service".parse()?);
+let response = client.echo(request).await?;
 ```
+
+---
+
+## Project Structure
+
+```
+guardplus/
+├── src/
+│   ├── main.rs              # Entry point, spawns all gateways
+│   ├── config.rs            # YAML configuration parsing
+│   ├── backend_registry.rs  # Thread-safe service registry
+│   ├── http_proxy.rs        # HTTP/HTTPS proxy implementation
+│   ├── grpc_service.rs      # gRPC proxy (Echo service)
+│   ├── tcp_udp_proxy.rs     # TCP/UDP proxy implementation
+│   ├── tls_config.rs        # TLS/rustls configuration
+│   ├── middleware.rs        # Tower middleware (auth, rate-limit)
+│   └── consul_integration.rs # Consul discovery (planned)
+├── proto/
+│   └── echo.proto           # gRPC service definition
+├── chart/                   # Helm chart for Kubernetes
+├── Dockerfile
+├── Cargo.toml
+├── config.yaml
+└── README.md
+```
+
+---
+
+## Status
+
+| Feature | Status |
+|---------|--------|
+| HTTP/HTTPS Proxying | Working |
+| Bearer Token Auth | Working |
+| Rate Limiting | Working |
+| TLS Termination | Working |
+| gRPC Proxying | Working |
+| TCP Proxying | Working |
+| UDP Proxying | Working |
+| Round-Robin LB | Working |
+| OIDC/JWT Validation | Planned |
+| Prometheus Metrics | Planned |
+| Consul Discovery | Planned |
+| Hot Config Reload | Planned |
+
+---
+
+## License
+
+Apache-2.0

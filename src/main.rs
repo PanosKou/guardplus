@@ -6,6 +6,7 @@ pub mod echo {
 }
 mod backend_registry;
 mod config;
+mod consul_integration;
 mod grpc_service;
 mod http_proxy;
 mod middleware;
@@ -60,8 +61,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Common parameters
     let bearer = cfg.bearer_token.clone();
-    let rate_per_sec = cfg.rate_limit_per_sec;
-    let rate_burst = Duration::from_secs(cfg.rate_limit_burst as u64);
+    // RateLimitLayer::new(num, per) allows `num` requests per `per` duration
+    // rate_limit_per_sec = requests allowed per second
+    let rate_limit = cfg.rate_limit_per_sec as u64;
+    let rate_period = Duration::from_secs(1);
 
     // Determine HTTPS port (fallback to http_port + 1)
     let https_port = cfg.https_port.unwrap_or(cfg.http_port + 1);
@@ -71,13 +74,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let reg = registry.clone();
         let acceptor = tls_acceptor.clone();
         let auth = Some(bearer.clone());
-        let rate = rate_per_sec;
-        let burst = rate_burst;
         spawn(async move {
             let addr: SocketAddr = format!("0.0.0.0:{}", https_port)
                 .parse()
                 .expect("invalid HTTPS addr");
-            http_proxy::run_https_gateway(addr, reg, acceptor, auth, rate.into(), burst).await;
+            http_proxy::run_https_gateway(addr, reg, acceptor, auth, rate_limit, rate_period).await;
         });
         info!("Spawned HTTPS gateway on port {}", https_port);
     }
@@ -86,13 +87,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     {
         let reg = registry.clone();
         let auth = Some(bearer.clone());
-        let rate = rate_per_sec;
-        let burst = rate_burst;
+        let http_port = cfg.http_port;
         spawn(async move {
-            let addr: SocketAddr = format!("0.0.0.0:{}", cfg.http_port)
+            let addr: SocketAddr = format!("0.0.0.0:{}", http_port)
                 .parse()
                 .expect("invalid HTTP addr");
-            http_proxy::run_http_gateway(addr, reg, auth, rate.into(), burst).await;
+            http_proxy::run_http_gateway(addr, reg, auth, rate_limit, rate_period).await;
         });
         info!("Spawned HTTP gateway on port {}", cfg.http_port);
     }
@@ -110,36 +110,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Spawned gRPC gateway on port {}", port);
     }
 
-    // 7) Spawn TCP proxy
-    {
+    // 7) Spawn TCP proxy for each TCP backend
+    for be in cfg.backends.iter().filter(|b| b.protocol == "tcp") {
         let reg = registry.clone();
-        let auth = bearer.clone();
+        let service_name = be.name.clone();
         let port = cfg.tcp_port.unwrap_or(9100);
         spawn(async move {
             let addr: SocketAddr = format!("0.0.0.0:{}", port)
                 .parse()
                 .expect("invalid TCP addr");
-            tcp_udp_proxy::run_tcp_gateway(addr, auth, reg)
+            tcp_udp_proxy::run_tcp_gateway(addr, service_name, reg)
                 .await
                 .unwrap_or_else(|e| error!("TCP gateway failed: {}", e));
         });
-        info!("Spawned TCP gateway on port {}", port);
+        info!(
+            "Spawned TCP gateway on port {} for service '{}'",
+            port, be.name
+        );
     }
 
-    // 8) Spawn UDP proxy
-    {
+    // 8) Spawn UDP proxy for each UDP backend
+    for be in cfg.backends.iter().filter(|b| b.protocol == "udp") {
         let reg = registry.clone();
-        let auth = bearer;
+        let service_name = be.name.clone();
         let port = cfg.udp_port.unwrap_or(9200);
         spawn(async move {
             let addr: SocketAddr = format!("0.0.0.0:{}", port)
                 .parse()
                 .expect("invalid UDP addr");
-            tcp_udp_proxy::run_udp_gateway(addr, auth, reg)
+            tcp_udp_proxy::run_udp_gateway(addr, service_name, reg)
                 .await
                 .unwrap_or_else(|e| error!("UDP gateway failed: {}", e));
         });
-        info!("Spawned UDP gateway on port {}", port);
+        info!(
+            "Spawned UDP gateway on port {} for service '{}'",
+            port, be.name
+        );
     }
 
     // 9) Log configured OIDC providers

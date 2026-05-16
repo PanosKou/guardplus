@@ -103,10 +103,18 @@ fn default_endpoint_denylist() -> Vec<String> {
         "DELETE /api/delete".to_string(),
     ]
 }
-fn default_max_body() -> usize { 1_048_576 }
-fn default_max_prompt() -> usize { 32_000 }
-fn default_max_num_ctx() -> u64 { 32768 }
-fn default_max_num_predict() -> i64 { 4096 }
+fn default_max_body() -> usize {
+    1_048_576
+}
+fn default_max_prompt() -> usize {
+    32_000
+}
+fn default_max_num_ctx() -> u64 {
+    32768
+}
+fn default_max_num_predict() -> i64 {
+    4096
+}
 
 impl Config {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
@@ -120,7 +128,6 @@ impl Config {
         Ok(cfg)
     }
 }
-
 
 impl Default for ProxyConfig {
     fn default() -> Self {

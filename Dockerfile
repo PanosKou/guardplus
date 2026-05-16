@@ -10,6 +10,7 @@ WORKDIR /app
 # Cache dependencies
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY proto ./proto
 COPY build.rs .  # if you use one
 RUN cargo build --release
 
@@ -27,8 +28,6 @@ COPY --from=builder /app/target/release/gamb /app/gamb
 
 # Optional: copy config + TLS certs (if using file-based TLS)
 COPY config.yaml /app/config.yaml
-COPY cert.pem /app/cert.pem
-COPY key.pem /app/key.pem
 
 # Expose ports
 EXPOSE 8080 8443 50051 9100 9200

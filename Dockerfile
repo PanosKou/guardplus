@@ -10,6 +10,7 @@ WORKDIR /app
 # Cache dependencies
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY proto ./proto
 COPY build.rs .  # if you use one
 RUN cargo build --release
 
